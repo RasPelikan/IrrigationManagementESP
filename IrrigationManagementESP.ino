@@ -5,12 +5,7 @@
 #include <WiFiClient.h>
 #include <Adafruit_MCP23X17.h>
 #include <time.h>
-
-const char* wifiSsid = "XXXXXXXXX";
-const char* wifiPassword = "YYYYYYYYY";
-// set MAC and Port of AccessPoint if you'r connecting to a mesh Wifi to stick to one certain AP.
-const unsigned char wifiMac[18] = { 0x1C, 0x7F, 0x2C, 0x63, 0xA3, 0x58 };
-const uint8 wifiPort = 11;
+#include "settings.h"
 
 #define HTTP_REST_PORT 8080
 ESP8266WebServer httpRestServer(HTTP_REST_PORT);
@@ -282,7 +277,7 @@ void setupWifi() {
   portExpander.pinMode(WIFI_LED, OUTPUT);
 
   Serial.print("Connecting to ");
-  Serial.println(ssid);
+  Serial.println(WIFI_SSID);
 
   wifiStatus = WIFI_STATUS_CONNECTING;
 
@@ -290,11 +285,12 @@ void setupWifi() {
   WiFi.setAutoReconnect(false);
   WiFi.mode(WIFI_STA);
   // see https://olimex.wordpress.com/2021/12/10/avoid-wifi-channel-12-13-14-when-working-with-esp-devices/
-  if (wifiPort < 15) {
-    WiFi.begin(wifiSsid, wifiPassword, wifiPort, wifiMac);
-  } else {
-    WiFi.begin(wifiSsid, wifiPassword);
-  }
+  #ifdef WIFI_PORT
+    unsigned char wifiMac[18] = WIFI_MAC;
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, WIFI_PORT, wifiMac);
+  #else
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  #endif
 
 }
 
