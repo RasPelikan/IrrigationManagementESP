@@ -26,4 +26,5 @@ point you want to connect to. Both can be determined by using a "Wifi Monitor" a
 #define WIFI_MAC { 0x1C, 0x7F, 0x2C, 0x63, 0xA3, 0x58 }
 ```
 
-Hint: There are connectivity issues for port greater than 11.
+Hint: There are [connectivity issues](https://olimex.wordpress.com/2021/12/10/avoid-wifi-channel-12-13-14-when-working-with-esp-devices/) for port greater than 11.
+

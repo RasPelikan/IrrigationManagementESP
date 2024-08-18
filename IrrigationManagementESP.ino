@@ -284,7 +284,6 @@ void setupWifi() {
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
   WiFi.mode(WIFI_STA);
-  // see https://olimex.wordpress.com/2021/12/10/avoid-wifi-channel-12-13-14-when-working-with-esp-devices/
   #ifdef WIFI_PORT
     unsigned char wifiMac[18] = WIFI_MAC;
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD, WIFI_PORT, wifiMac);
