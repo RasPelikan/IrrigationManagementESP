@@ -15,21 +15,19 @@ Adafruit_MCP23X17 portExpander;
 
 // see https://github.com/adafruit/Adafruit-MCP23017-Arduino-Library
 #define GPIO_WATERLEVEL_EMPTY 4 // GPA4
-#define WATERLEVEL_EMPTY 0 // GPA4
+#define WATERLEVEL_EMPTY 0
 #define GPIO_WATERLEVEL_1 3 // GPA3
-#define WATERLEVEL_1 2 // GPA3
+#define WATERLEVEL_1 2
 #define GPIO_WATERLEVEL_2 2 // GPA2
-#define WATERLEVEL_2 35 // GPA2
+#define WATERLEVEL_2 35
 #define GPIO_WATERLEVEL_3 1 // GPA1
-#define WATERLEVEL_3 67 // GPA1
+#define WATERLEVEL_3 67
 #define GPIO_WATERLEVEL_FULL 0 // GPA0
-#define WATERLEVEL_FULL 100 // GPA0
-#define WATERLEVEL_HYSTERESIS 120 // 120 seconds = 2 minutes
+#define WATERLEVEL_4 68
+#define WATERLEVEL_FULL 100
 
 #define GPIO_PUMP_IRRIGATION 8 // GPB0
 #define GPIO_PUMP_WELL 9 // GPB1
-#define PUMP_WELL_SLEEP 15 // 15/45 minute cycle
-#define PUMP_WELL_RUN 45 // 45/15 minute cycle
 #define GPIO_VALVE_1 10 // GPB2
 #define GPIO_VALVE_2 11 // GPB3
 #define GPIO_VALVE_3 12 // GPB4
@@ -39,7 +37,7 @@ Adafruit_MCP23X17 portExpander;
 #define RELAIS_ON LOW
 #define RELAIS_OFF HIGH
 
-#define WIFI_LED 7 // GPA7
+#define GPIO_WIFI_LED 7 // GPA7
 #define WIFI_STATUS_DISCONNECTED 0
 #define WIFI_STATUS_CONNECTING 1
 #define WIFI_STATUS_WAITING_FOR_NTP 2
@@ -47,12 +45,8 @@ Adafruit_MCP23X17 portExpander;
 
 #define LED BUILTIN_LED
 
-const long blinkInterval = 125;
-
 #define MY_NTP_SERVER "at.pool.ntp.org"           
 #define MY_TZ "CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00"  // https://remotemonitoringsystems.ca/time-zone-abbreviations.php
-time_t now = 0;                     // this are the seconds since Epoch (1970) - UTC
-tm tm;                              // the structure tm holds time information in a more convenient way
 
 WiFiEventHandler wifiConnectHandler;
 WiFiEventHandler wifiDisconnectHandler;
@@ -68,12 +62,11 @@ void setup() {
     while (1);
   }
 
+  // Initialize NTP for current time and Wifi
   setupNtp();
-
-  wifiConnectHandler = WiFi.onStationModeGotIP(onWifiConnect);
-  wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWifiDisconnect);
   setupWifi();
 
+  // Initialize water pumps and valves
   setupWaterPump();
   setupValves();
 
@@ -82,85 +75,73 @@ void setup() {
 
 }
 
+// application status
 unsigned long previousTime = 0;
 uint8 interval = 0;
 uint8 wifiStatus = WIFI_STATUS_DISCONNECTED;
-uint8 lastMinute = 61;
-uint8 waterLevel = 0;
+uint8 lastMinute = 0;
+uint8 waterLevel = 101; // means print current level on startup
 uint8 waterStatusHysteresis = 0;
-uint8 wellPumpEnabled = 0;
-uint8 wellPumpInterval = PUMP_WELL_SLEEP;
+bool wellPumpActive = false;
+uint8 wellPumpInterval = PUMP_WELL_SLEEP;  // means wait for sleep interval on startup
+int waterPressure = 0;
+bool irrigationPumpEnabled = false;
+bool irrigationPumpActive = false;
+time_t now = 0;                     // this are the seconds since Epoch (1970) - UTC
+tm tm;                              // the structure tm holds time information in a more convenient way
 
 void loop() {
 
   // process REST requests
   httpRestServer.handleClient();
 
+  // ignore loop execution more often than LED blink interval (1/8 second)
   unsigned long currentMillis = millis();
-  if (currentMillis - previousTime < blinkInterval) {
+  if (currentMillis - previousTime < 125) {
     return;
   }
-
   previousTime = currentMillis;
-  ++interval;
 
+  // track seconds based on LED blink interval (8 times = 1 second)
+  ++interval;
   interval = interval % 8;
   if (interval == 0) { // every second
 
-    testForWater();
+    // 1. check current water level
+    updateWaterLevel();
 
-    time(&now);
-    localtime_r(&now, &tm);
+    // 2. control irrigation pump immediately
+    controlIrrigationPump();
+
+    if (now != 0) {  // wait for first NTP update
+      time(&now);    // this function calls the NTP server only every hour
+      localtime_r(&now, &tm);
+    }
+
     if (tm.tm_min != lastMinute) { // every minute
       lastMinute = tm.tm_min;
       printTime(now);
 
-      // control well pump: if container not full, then pump at
-      // a cycle of 45/15 minutes (according to pump specification)
-      if (wellPumpInterval > 0) {
-        if (waterLevel != WATERLEVEL_FULL) {
-          --wellPumpInterval;
-        } else {
-          wellPumpInterval = 0;
-          wellPumpEnabled = false;
-          portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_OFF);
-        }
-      } else if (waterLevel != WATERLEVEL_FULL) {
-        if (wellPumpEnabled) {
-          wellPumpEnabled = false;
-          portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_OFF);
-          wellPumpInterval = PUMP_WELL_SLEEP - 1;
-          if (Serial.availableForWrite()) {
-            Serial.print("Switch off well pump for ");
-            Serial.print(PUMP_WELL_SLEEP);
-            Serial.println(" minutes");
-          }
-        } else {
-          wellPumpEnabled = true;
-          portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_ON);
-          wellPumpInterval = PUMP_WELL_RUN - 1;
-          if (Serial.availableForWrite()) {
-            Serial.print("Switch on well pump for ");
-            Serial.print(PUMP_WELL_RUN);
-            Serial.println(" minutes");
-          }
-        }
-      }
+      // 3. controll well pump
+      controlWellPump();
 
+      // reactive Wifi if connection lost
       if (wifiStatus == WIFI_STATUS_DISCONNECTED) {
-        setupWifi();
+        activateWifi();
       }
 
     }
 
   }
 
+  // update LEDs
   blinkLeds();
 
 }
 
-void testForWater() {
+void updateWaterLevel() {
 
+  // ignore changes in a row cause by small waves in the container
   if (waterStatusHysteresis > 0) {
     --waterStatusHysteresis;
     return;
@@ -171,80 +152,154 @@ void testForWater() {
       waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
       waterLevel = WATERLEVEL_EMPTY;
       digitalWrite(LED, HIGH);
-      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_OFF); // disable irrigation pump
-      if (Serial.availableForWrite()) {
-        Serial.print("Waterlevel ");
-        Serial.print(WATERLEVEL_EMPTY);
-        Serial.println("%");
-      }
+      irrigationPumpEnabled = false;
+
+      Serial.print("Waterlevel ");
+      Serial.print(WATERLEVEL_EMPTY);
+      Serial.println("%");
     }
   } else if (portExpander.digitalRead(GPIO_WATERLEVEL_1)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_1) {
       waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
       waterLevel = WATERLEVEL_1;
       digitalWrite(LED, LOW);
-      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_ON); // enable irrigation pump
-      if (Serial.availableForWrite()) {
-        Serial.print("Waterlevel ");
-        Serial.print(WATERLEVEL_EMPTY);
-        Serial.print("-");
-        Serial.print(WATERLEVEL_1);
-        Serial.println("%");
-      }
+      irrigationPumpEnabled = true;
+
+      Serial.print("Waterlevel ");
+      Serial.print(WATERLEVEL_EMPTY);
+      Serial.print("-");
+      Serial.print(WATERLEVEL_1);
+      Serial.println("%");
     }
+    /*
   } else if (portExpander.digitalRead(GPIO_WATERLEVEL_2)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_2) {
       waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
       waterLevel = WATERLEVEL_2;
       digitalWrite(LED, LOW);
-      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_ON); // enable irrigation pump
-      if (Serial.availableForWrite()) {
-        Serial.print("Waterlevel ");
-        Serial.print(WATERLEVEL_1);
-        Serial.print("-");
-        Serial.print(WATERLEVEL_2);
-        Serial.println("%");
-      }
+      irrigationPumpEnabled = true;
+
+      Serial.print("Waterlevel ");
+      Serial.print(WATERLEVEL_1);
+      Serial.print("-");
+      Serial.print(WATERLEVEL_2);
+      Serial.println("%");
     }
   } else if (portExpander.digitalRead(GPIO_WATERLEVEL_3)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_3) {
       waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
       waterLevel = WATERLEVEL_3;
       digitalWrite(LED, LOW);
-      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_ON); // enable irrigation pump
-      if (Serial.availableForWrite()) {
-        Serial.print("Waterlevel ");
-        Serial.print(WATERLEVEL_2);
-        Serial.print("-");
-        Serial.print(WATERLEVEL_3);
-        Serial.println("%");
-      }
+      irrigationPumpEnabled = true;
+
+      Serial.print("Waterlevel ");
+      Serial.print(WATERLEVEL_2);
+      Serial.print("-");
+      Serial.print(WATERLEVEL_3);
+      Serial.println("%");
     }
+    */
   } else if (portExpander.digitalRead(GPIO_WATERLEVEL_FULL)) { // pulled-up means no water
+    if (waterLevel != WATERLEVEL_4) {
+      waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
+      waterLevel = WATERLEVEL_4;
+      digitalWrite(LED, LOW);
+      irrigationPumpEnabled = true;
+
+      Serial.print("Waterlevel ");
+      Serial.print(WATERLEVEL_3);
+      Serial.print("-");
+      Serial.print(WATERLEVEL_FULL);
+      Serial.println("%");
+    }
+  } else { // all waterlevel sensors are low, means container is full
     if (waterLevel != WATERLEVEL_FULL) {
       waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
       waterLevel = WATERLEVEL_FULL;
       digitalWrite(LED, LOW);
-      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_ON); // enable irrigation pump
-      if (Serial.availableForWrite()) {
-        Serial.print("Waterlevel ");
-        Serial.print(WATERLEVEL_3);
-        Serial.print("-");
-        Serial.print(WATERLEVEL_FULL);
-        Serial.println("%");
-      }
+      irrigationPumpEnabled = true;
+
+      Serial.print("Waterlevel ");
+      Serial.print(WATERLEVEL_FULL);
+      Serial.println("%");
+    }
+  }
+
+}
+
+// control well pump: if container not full, then pump at
+// a cycle of 45/15 minutes (according to pump specification)
+void controlWellPump() {
+
+  switchOfWellPumpIfContainerIsFull();
+
+  if (wellPumpInterval > 0) {  // avoid overflow if cycle is set to 0
+    --wellPumpInterval;
+  }
+  if (wellPumpInterval > 0) {
+    return;
+  }
+
+  // after interval completed switch well pump on or off
+  activateOrDeactivateWellPumpIfContainerIsNotFull();
+
+}
+
+void activateOrDeactivateWellPumpIfContainerIsNotFull() {
+
+  if (waterLevel == WATERLEVEL_FULL) {
+    return;
+  }
+
+  if (wellPumpActive) {
+    wellPumpActive = false;
+    portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_OFF);
+    wellPumpInterval = PUMP_WELL_SLEEP;
+
+    Serial.print("Switch off well pump for ");
+    Serial.print(PUMP_WELL_SLEEP);
+    Serial.println(" minutes");
+  } else {
+    wellPumpActive = true;
+    portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_ON);
+    wellPumpInterval = PUMP_WELL_RUN;
+
+    Serial.print("Switch on well pump for ");
+    Serial.print(PUMP_WELL_RUN);
+    Serial.println(" minutes");
+  }
+
+}
+
+void switchOfWellPumpIfContainerIsFull() {
+
+    // if container is full, then switch off well pump
+    if ((waterLevel == WATERLEVEL_FULL) && wellPumpActive) {
+
+      wellPumpInterval = PUMP_WELL_SLEEP;
+      wellPumpActive = false;
+      portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_OFF);
+
+      Serial.println("Switch off well pump because container is full");
+      return;
+
+    }
+
+}
+
+void controlIrrigationPump() {
+
+  waterPressure = analogRead(A0);
+
+  if (irrigationPumpEnabled) {
+    if (!irrigationPumpActive) {
+      irrigationPumpActive = true;
+      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_ON); // turn on irrigation pump
     }
   } else {
-    if (waterLevel != WATERLEVEL_FULL) {
-      waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
-      waterLevel = WATERLEVEL_FULL;
-      digitalWrite(LED, LOW);
-      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_ON); // enable irrigation pump
-      if (Serial.availableForWrite()) {
-        Serial.print("Waterlevel ");
-        Serial.print(WATERLEVEL_FULL);
-        Serial.println("%");
-      }
+    if (irrigationPumpActive) {
+      irrigationPumpActive = false;
+      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_OFF); // turn off irrigation pump
     }
   }
 
@@ -252,29 +307,46 @@ void testForWater() {
 
 void blinkLeds() {
 
+  blinkWifiLed();
+
+}
+
+void blinkWifiLed() {
+
   if (wifiStatus == WIFI_STATUS_DISCONNECTED) {
-      portExpander.digitalWrite(WIFI_LED, LOW);
+      portExpander.digitalWrite(GPIO_WIFI_LED, LOW);
   } else if (wifiStatus == WIFI_STATUS_CONNECTING) {
     if (interval % 2 == 0) { // blinking fast
-      portExpander.digitalWrite(WIFI_LED, HIGH);
+      portExpander.digitalWrite(GPIO_WIFI_LED, HIGH);
     } else {
-      portExpander.digitalWrite(WIFI_LED, LOW);
+      portExpander.digitalWrite(GPIO_WIFI_LED, LOW);
     }
   } else if (wifiStatus == WIFI_STATUS_WAITING_FOR_NTP) {
     if (interval >> 2 % 2 == 0) { // blinking slow
-      portExpander.digitalWrite(WIFI_LED, HIGH);
+      portExpander.digitalWrite(GPIO_WIFI_LED, HIGH);
     } else {
-      portExpander.digitalWrite(WIFI_LED, LOW);
+      portExpander.digitalWrite(GPIO_WIFI_LED, LOW);
     }
   } else if (wifiStatus == WIFI_STATUS_NTP_ACTIVE) {
-    portExpander.digitalWrite(WIFI_LED, HIGH);
+    portExpander.digitalWrite(GPIO_WIFI_LED, HIGH);
   }
 
 }
 
 void setupWifi() {
 
-  portExpander.pinMode(WIFI_LED, OUTPUT);
+  // track los of Wifi connection
+  wifiConnectHandler = WiFi.onStationModeGotIP(onWifiConnect);
+  wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWifiDisconnect);
+
+  portExpander.pinMode(GPIO_WIFI_LED, OUTPUT);
+
+  // turn on Wifi
+  activateWifi();
+
+}
+
+void activateWifi() {
 
   Serial.print("Connecting to ");
   Serial.println(WIFI_SSID);
@@ -310,7 +382,13 @@ void onWifiDisconnect(const WiFiEventStationModeDisconnected& event) {
 void ntpTimeIsSet(bool from_sntp /* <= this parameter is optional */) {
 
   wifiStatus = WIFI_STATUS_NTP_ACTIVE;
-  time(&now);                       // this function calls the NTP server only every hour
+  if (now == 0) {   // first NTP sync
+    time(&now);
+    localtime_r(&now, &tm);
+    lastMinute = tm.tm_min;
+  } else {
+    time(&now);
+  }
 
   Serial.print("NTP update: ");
   printTime(now);

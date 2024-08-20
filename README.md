@@ -2,6 +2,14 @@
 
 This is an irrigation management system based on the ESP8266 platform.
 
+It controls a low rate well pump which pumps water into containers during the day.
+Additionally, it controls a irrigation pump (placed in the container) based on
+the pipes current water pressure and the container's current level of water.
+
+This setup is needed if your well feels not well any more ;-) - means there is
+water but not enough to place the high rated irrigation pump directly into the
+well.
+
 ## Hardware
 
 An MCP23017 (I2C) is used control LEDs and relais, because the system is able to control
@@ -11,7 +19,11 @@ the board provides.
 ## Build
 
 A file `settings.h` contains all `#define` commands for base properties (e.g. WIFI, etc.).
-Add this file by copying this template and adapt the values according to your environment:
+Add this file by copying this template and adapt the values according to your environment.
+
+## settings.h
+
+### Wifi
 
 ```c
 #define WIFI_SSID "XXXXXXXXX"
@@ -28,3 +40,23 @@ point you want to connect to. Both can be determined by using a "Wifi Monitor" a
 
 Hint: There are [connectivity issues](https://olimex.wordpress.com/2021/12/10/avoid-wifi-channel-12-13-14-when-working-with-esp-devices/) for port greater than 11.
 
+### Well pump interval
+
+Most low rate well pumps are not supposed to run 24h without any break.
+Typically, an cycle is given which needs to be configured like this:
+
+```c
+#define PUMP_WELL_SLEEP 15  // 15/45 minute cycle
+#define PUMP_WELL_RUN 45    // 45/15 minute cycle
+```
+### Water sensor hysteresis
+
+Once a changed water level is detected it is necessary to pause sensing for update
+because waves in the container might cause fluctuation messurements. In electronic
+terms this is called hysteresis. Set a proper value according to the size of your
+container: For bigger containers it takes more time to pump enough water so waves
+cause this issue.
+
+```c
+#define WATERLEVEL_HYSTERESIS 120  // 120 seconds = 2 minutes
+````
