@@ -60,3 +60,19 @@ cause this issue.
 ```c
 #define WATERLEVEL_HYSTERESIS 120  // 120 seconds = 2 minutes
 ````
+
+### Water pressure sensor hysteresis
+
+The water pressure is measured using ADC input (values from 0 to 1023). One can define
+the lower and upper boundary and the hysteresis: how long the irrigation pump will
+stay switched off once is has been switch off.
+
+```c
+#define WATERPRESSURE_LOW_END 200
+#define WATERPRESSURE_LOW_HYSTERESIS 5 // disable switching off for 5 seconds
+#define WATERPRESSURE_HIGH_END 600
+#define WATERPRESSURE_HIGH_HYSTERESIS 20 // disable switching on for 2 minutes
+````
+
+Hint: There is [data available](./readme/sensor-values.xlsx) for this sensor:
+[https://www.amazon.de/dp/B07SYLH59Q](https://www.amazon.de/dp/B07SYLH59Q).

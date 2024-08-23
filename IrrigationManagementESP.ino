@@ -6,6 +6,7 @@
 #include <Adafruit_MCP23X17.h>
 #include <time.h>
 #include "settings.h"
+#include "WString.h"  // https://github.com/esp8266/Arduino/blob/60fe7b4ca8cdca25366af8a7c0a7b70d32c797f8/doc/PROGMEM.rst
 
 #define HTTP_REST_PORT 8080
 ESP8266WebServer httpRestServer(HTTP_REST_PORT);
@@ -45,7 +46,7 @@ Adafruit_MCP23X17 portExpander;
 
 #define LED BUILTIN_LED
 
-#define MY_NTP_SERVER "at.pool.ntp.org"           
+#define MY_NTP_SERVER "at.pool.ntp.org"
 #define MY_TZ "CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00"  // https://remotemonitoringsystems.ca/time-zone-abbreviations.php
 
 WiFiEventHandler wifiConnectHandler;
@@ -58,7 +59,7 @@ void setup() {
 
   // Setup port expander MCP27013 for I2C address 0x20 
   if (!portExpander.begin_I2C(0x20)) {
-    Serial.println("Could not initialize I2C port-expander on port 0x20!");
+    Serial.println(F("Could not initialize I2C port-expander on port 0x20!"));
     while (1);
   }
 
@@ -83,6 +84,7 @@ uint8 lastMinute = 0;
 uint8 waterLevel = 101; // means print current level on startup
 uint8 waterStatusHysteresis = 0;
 bool wellPumpActive = false;
+uint8 waterPressureHysteresis = 0;
 uint8 wellPumpInterval = PUMP_WELL_SLEEP;  // means wait for sleep interval on startup
 int waterPressure = 0;
 bool irrigationPumpEnabled = false;
@@ -154,9 +156,9 @@ void updateWaterLevel() {
       digitalWrite(LED, HIGH);
       irrigationPumpEnabled = false;
 
-      Serial.print("Waterlevel ");
+      Serial.print(F("Waterlevel "));
       Serial.print(WATERLEVEL_EMPTY);
-      Serial.println("%");
+      Serial.println(F("%"));
     }
   } else if (portExpander.digitalRead(GPIO_WATERLEVEL_1)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_1) {
@@ -165,11 +167,11 @@ void updateWaterLevel() {
       digitalWrite(LED, LOW);
       irrigationPumpEnabled = true;
 
-      Serial.print("Waterlevel ");
+      Serial.print(F("Waterlevel "));
       Serial.print(WATERLEVEL_EMPTY);
-      Serial.print("-");
+      Serial.print(F("-"));
       Serial.print(WATERLEVEL_1);
-      Serial.println("%");
+      Serial.println(F("%"));
     }
     /*
   } else if (portExpander.digitalRead(GPIO_WATERLEVEL_2)) { // pulled-up means no water
@@ -206,11 +208,11 @@ void updateWaterLevel() {
       digitalWrite(LED, LOW);
       irrigationPumpEnabled = true;
 
-      Serial.print("Waterlevel ");
+      Serial.print(F("Waterlevel "));
       Serial.print(WATERLEVEL_3);
-      Serial.print("-");
+      Serial.print(F("-"));
       Serial.print(WATERLEVEL_FULL);
-      Serial.println("%");
+      Serial.println(F("%"));
     }
   } else { // all waterlevel sensors are low, means container is full
     if (waterLevel != WATERLEVEL_FULL) {
@@ -219,9 +221,9 @@ void updateWaterLevel() {
       digitalWrite(LED, LOW);
       irrigationPumpEnabled = true;
 
-      Serial.print("Waterlevel ");
+      Serial.print(F("Waterlevel "));
       Serial.print(WATERLEVEL_FULL);
-      Serial.println("%");
+      Serial.println(F("%"));
     }
   }
 
@@ -256,17 +258,17 @@ void activateOrDeactivateWellPumpIfContainerIsNotFull() {
     portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_OFF);
     wellPumpInterval = PUMP_WELL_SLEEP;
 
-    Serial.print("Switch off well pump for ");
+    Serial.print(F("Switched off well pump for "));
     Serial.print(PUMP_WELL_SLEEP);
-    Serial.println(" minutes");
+    Serial.println(F(" minutes"));
   } else {
     wellPumpActive = true;
     portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_ON);
     wellPumpInterval = PUMP_WELL_RUN;
 
-    Serial.print("Switch on well pump for ");
+    Serial.print(F("Switched on well pump for "));
     Serial.print(PUMP_WELL_RUN);
-    Serial.println(" minutes");
+    Serial.println(F(" minutes"));
   }
 
 }
@@ -280,7 +282,7 @@ void switchOfWellPumpIfContainerIsFull() {
       wellPumpActive = false;
       portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_OFF);
 
-      Serial.println("Switch off well pump because container is full");
+      Serial.println(F("Switched off well pump because container is full"));
       return;
 
     }
@@ -292,15 +294,26 @@ void controlIrrigationPump() {
   waterPressure = analogRead(A0);
 
   if (irrigationPumpEnabled) {
-    if (!irrigationPumpActive) {
-      irrigationPumpActive = true;
-      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_ON); // turn on irrigation pump
-    }
-  } else {
-    if (irrigationPumpActive) {
+    if (waterPressureHysteresis > 0) {
+      --waterPressureHysteresis;
+    } else if (irrigationPumpActive
+        && (waterPressure > WATERPRESSURE_HIGH_END)) {
       irrigationPumpActive = false;
+      waterPressureHysteresis = WATERPRESSURE_HIGH_HYSTERESIS;
       portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_OFF); // turn off irrigation pump
+      Serial.println(F("Switched off irrigation pump because water-pressure beyond upper boundary"));
+    } else if (!irrigationPumpActive
+        && (waterPressure < WATERPRESSURE_LOW_END)) {
+      irrigationPumpActive = true;
+      waterPressureHysteresis = WATERPRESSURE_LOW_HYSTERESIS;
+      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_ON); // turn on irrigation pump
+      Serial.println(F("Switched on irrigation pump because water-pressure below lower boundary"));
     }
+  } else if (irrigationPumpActive) {
+    irrigationPumpActive = false;
+    waterPressureHysteresis = WATERPRESSURE_HIGH_HYSTERESIS;
+    portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_OFF); // turn off irrigation pump
+    Serial.println(F("Switched off irrigation pump because no water left in container"));
   }
 
 }
@@ -348,7 +361,7 @@ void setupWifi() {
 
 void activateWifi() {
 
-  Serial.print("Connecting to ");
+  Serial.print(F("Connecting to "));
   Serial.println(WIFI_SSID);
 
   wifiStatus = WIFI_STATUS_CONNECTING;
@@ -390,7 +403,7 @@ void ntpTimeIsSet(bool from_sntp /* <= this parameter is optional */) {
     time(&now);
   }
 
-  Serial.print("NTP update: ");
+  Serial.print(F("NTP update: "));
   printTime(now);
 
 }
@@ -405,7 +418,7 @@ void setupNtp() {
 
 void wifiConnected() {
 
-  Serial.print("Connected to WiFi: ");
+  Serial.print(F("Connected to WiFi: "));
   Serial.println(WiFi.localIP().toString());
 
   // Setup REST endpoints
@@ -421,18 +434,18 @@ void wifiConnected() {
 
 void handleNotFound() {
 
-  String message = "File Not Found\n\n";
-  message += "URI: ";
+  String message = F("File Not Found\n\n");
+  message += F("URI: ");
   message += httpRestServer.uri();
-  message += "\nMethod: ";
+  message += F("\nMethod: ");
   message += (httpRestServer.method() == HTTP_GET) ? "GET" : "POST";
-  message += "\nArguments: ";
+  message += F("\nArguments: ");
   message += httpRestServer.args();
   message += "\n";
   for (uint8_t i = 0; i < httpRestServer.args(); i++) {
     message += " " + httpRestServer.argName(i) + ": " + httpRestServer.arg(i) + "\n";
   }
-  httpRestServer.send(404, "text/plain", message);
+  httpRestServer.send(404, F("text/plain"), message);
 
 }
 
@@ -440,16 +453,16 @@ void handleRSSI() {
 
   char rssi[16];
   snprintf(rssi, sizeof rssi, "%i", WiFi.RSSI());
-  String message = "RSSI: ";
+  String message = F("RSSI: ");
   message += rssi;
   message += " dB";
-  httpRestServer.send(200, "text/plain", message);
+  httpRestServer.send(200, F("text/plain"), message);
 
 }
 
 void wifiDisconnected() {
   
-  Serial.println("WiFi disconnected!");
+  Serial.println(F("WiFi disconnected!"));
 
   httpRestServer.stop();
 
