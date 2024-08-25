@@ -21,6 +21,15 @@ the board provides.
 A file `settings.h` contains all `#define` commands for base properties (e.g. WIFI, etc.).
 Add this file by copying this template and adapt the values according to your environment.
 
+## Configuration file
+
+There is a template for the configuration file: `config-template.json`. To upload your
+individual configuration file, make a new directory `data` in this project (it's already
+excluded but `.gitignore`) and place a copy of the template named als `config.json` into
+the new directory. Now you can use
+[Arduino IDE ESP8266 LittleFS Filessystem Uploader Plugin](https://randomnerdtutorials.com/arduino-ide-2-install-esp8266-littlefs/)
+to send the file to your board.
+
 ## settings.h
 
 ### Wifi

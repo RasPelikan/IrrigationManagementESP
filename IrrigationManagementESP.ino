@@ -7,6 +7,7 @@
 #include <time.h>
 #include "settings.h"
 #include "WString.h"  // https://github.com/esp8266/Arduino/blob/60fe7b4ca8cdca25366af8a7c0a7b70d32c797f8/doc/PROGMEM.rst
+#include "LittleFS.h"
 
 #define HTTP_REST_PORT 8080
 ESP8266WebServer httpRestServer(HTTP_REST_PORT);
@@ -28,7 +29,9 @@ Adafruit_MCP23X17 portExpander;
 #define WATERLEVEL_FULL 100
 
 #define GPIO_PUMP_IRRIGATION 8 // GPB0
+#define GPIO_PUMP_IRRIGATION_LED 5 // GPA5
 #define GPIO_PUMP_WELL 9 // GPB1
+#define GPIO_PUMP_WELL_LED 6 // GPA6
 #define GPIO_VALVE_1 10 // GPB2
 #define GPIO_VALVE_2 11 // GPB3
 #define GPIO_VALVE_3 12 // GPB4
@@ -68,7 +71,7 @@ void setup() {
   setupWifi();
 
   // Initialize water pumps and valves
-  setupWaterPump();
+  setupWaterPumps();
   setupValves();
 
   pinMode(LED, OUTPUT);
@@ -321,6 +324,8 @@ void controlIrrigationPump() {
 void blinkLeds() {
 
   blinkWifiLed();
+  blinkIrrigationPumpLed();
+  blinkWellPumpLed();
 
 }
 
@@ -335,13 +340,53 @@ void blinkWifiLed() {
       portExpander.digitalWrite(GPIO_WIFI_LED, LOW);
     }
   } else if (wifiStatus == WIFI_STATUS_WAITING_FOR_NTP) {
-    if (interval >> 2 % 2 == 0) { // blinking slow
+    if (interval >> 3 == 0) { // blinking slow
       portExpander.digitalWrite(GPIO_WIFI_LED, HIGH);
     } else {
       portExpander.digitalWrite(GPIO_WIFI_LED, LOW);
     }
   } else if (wifiStatus == WIFI_STATUS_NTP_ACTIVE) {
     portExpander.digitalWrite(GPIO_WIFI_LED, HIGH);
+  }
+
+}
+
+void blinkIrrigationPumpLed() {
+
+  if (irrigationPumpActive) {
+    if (interval >> 2 == 0) { // blinking slow
+      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION_LED, HIGH);
+    } else {
+      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION_LED, LOW);
+    }
+  } else if (!irrigationPumpEnabled) {
+    if (interval % 2 == 0) { // blinking fast
+      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION_LED, HIGH);
+    } else {
+      portExpander.digitalWrite(GPIO_PUMP_IRRIGATION_LED, LOW);
+    }
+  } else {
+    portExpander.digitalWrite(GPIO_PUMP_IRRIGATION_LED, LOW);
+  }
+
+}
+
+void blinkWellPumpLed() {
+
+  if (wellPumpActive) {
+    if (interval >> 2 == 0) { // blinking slow
+      portExpander.digitalWrite(GPIO_PUMP_WELL_LED, HIGH);
+    } else {
+      portExpander.digitalWrite(GPIO_PUMP_WELL_LED, LOW);
+    }
+  } else if (wellPumpInterval > 0) {
+    if (interval % 2 == 0) { // blinking fast
+      portExpander.digitalWrite(GPIO_PUMP_WELL_LED, HIGH);
+    } else {
+      portExpander.digitalWrite(GPIO_PUMP_WELL_LED, LOW);
+    }
+  } else {
+    portExpander.digitalWrite(GPIO_PUMP_WELL_LED, LOW);
   }
 
 }
@@ -423,6 +468,7 @@ void wifiConnected() {
 
   // Setup REST endpoints
   httpRestServer.on("/rssi", HTTP_GET, handleRSSI);
+  httpRestServer.on("/config", HTTP_GET, handleGetConfig);
   httpRestServer.on("/", HTTP_GET, []() {
       httpRestServer.send(200, F("text/html"), F("Welcome to the REST Web Server"));
     });
@@ -460,6 +506,28 @@ void handleRSSI() {
 
 }
 
+void handleGetConfig() {
+
+  if(!LittleFS.begin()){
+    Serial.println(F("An Error has occurred while mounting LittleFS"));
+    return;
+  }
+  
+  File file = LittleFS.open(F("/config.json"), "r");
+  if(!file){
+    Serial.println(F("Failed to open `config.json` for reading"));
+    return;
+  }
+
+  uint16_t sent = httpRestServer.streamFile(file, "application/json");
+  if (sent != file.size()) {
+    Serial.println(F("Sent less data than expected"));
+  }
+  
+  file.close();
+
+}
+
 void wifiDisconnected() {
   
   Serial.println(F("WiFi disconnected!"));
@@ -485,7 +553,10 @@ void setupValves() {
 
 }
 
-void setupWaterPump() {
+void setupWaterPumps() {
+
+  portExpander.pinMode(GPIO_PUMP_IRRIGATION_LED, OUTPUT);
+  portExpander.pinMode(GPIO_PUMP_WELL_LED, OUTPUT);
 
   portExpander.pinMode(GPIO_PUMP_IRRIGATION, OUTPUT);
   portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_OFF);
