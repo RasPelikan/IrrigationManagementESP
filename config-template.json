@@ -1,2 +1,39 @@
-{}
+{
+  "wifi": {
+    "sid": "012345678901234567890123456789",
+    "pwd": "012345678901234567890123456789",
+    "port": 10,
+    "mac": "1C7F2C63A358"
+  },
+  "pumps": {
+    "well": {
+      "cycle": {
+        "on": 45,
+        "off": 15
+      }
+    },
+    "irrigation": {
+      "hysteresis": 1200
+    }
+  },
+  "water": {
+    "level": {
+      "hysteresis": 120
+    },
+    "pressure": {
+      "low": 3.0,
+      "high": 5.5,
+      "values": {
+        "first": {
+          "bar": 3.0,
+          "value": 200
+        },
+        "second": {
+          "bar": 7.0,
+          "value": 800
+        }
+      }
+    }
+  }
+}
 

@@ -1,16 +1,18 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
-#include <ESP8266WebServer.h>
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 #include <WiFiClient.h>
 #include <Adafruit_MCP23X17.h>
 #include <time.h>
 #include "settings.h"
 #include "WString.h"  // https://github.com/esp8266/Arduino/blob/60fe7b4ca8cdca25366af8a7c0a7b70d32c797f8/doc/PROGMEM.rst
 #include "LittleFS.h"
+#include <ArduinoJson.h>
 
-#define HTTP_REST_PORT 8080
-ESP8266WebServer httpRestServer(HTTP_REST_PORT);
+AsyncWebServer httpRestServer(80);
+AsyncEventSource sseHandler("/events");
 
 #define PORT_EXPANDER_ADDR 0 // Adresse 0x20 / 0
 Adafruit_MCP23X17 portExpander;
@@ -47,13 +49,12 @@ Adafruit_MCP23X17 portExpander;
 #define WIFI_STATUS_WAITING_FOR_NTP 2
 #define WIFI_STATUS_NTP_ACTIVE 3
 
-#define LED BUILTIN_LED
-
 #define MY_NTP_SERVER "at.pool.ntp.org"
 #define MY_TZ "CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00"  // https://remotemonitoringsystems.ca/time-zone-abbreviations.php
 
 WiFiEventHandler wifiConnectHandler;
 WiFiEventHandler wifiDisconnectHandler;
+//StaticJsonBuffer<756> jsonBuffer;   // see https://arduinojson.org/v5/assistant/
 
 void setup() {
 
@@ -66,6 +67,8 @@ void setup() {
     while (1);
   }
 
+  //jsonBuffer.par
+
   // Initialize NTP for current time and Wifi
   setupNtp();
   setupWifi();
@@ -73,9 +76,6 @@ void setup() {
   // Initialize water pumps and valves
   setupWaterPumps();
   setupValves();
-
-  pinMode(LED, OUTPUT);
-  digitalWrite(LED, HIGH);
 
 }
 
@@ -87,7 +87,7 @@ uint8 lastMinute = 0;
 uint8 waterLevel = 101; // means print current level on startup
 uint8 waterStatusHysteresis = 0;
 bool wellPumpActive = false;
-uint8 waterPressureHysteresis = 0;
+uint8 irrigationPumpHysteresis = 0;
 uint8 wellPumpInterval = PUMP_WELL_SLEEP;  // means wait for sleep interval on startup
 int waterPressure = 0;
 bool irrigationPumpEnabled = false;
@@ -96,9 +96,6 @@ time_t now = 0;                     // this are the seconds since Epoch (1970) -
 tm tm;                              // the structure tm holds time information in a more convenient way
 
 void loop() {
-
-  // process REST requests
-  httpRestServer.handleClient();
 
   // ignore loop execution more often than LED blink interval (1/8 second)
   unsigned long currentMillis = millis();
@@ -156,7 +153,6 @@ void updateWaterLevel() {
     if (waterLevel != WATERLEVEL_EMPTY) {
       waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
       waterLevel = WATERLEVEL_EMPTY;
-      digitalWrite(LED, HIGH);
       irrigationPumpEnabled = false;
 
       Serial.print(F("Waterlevel "));
@@ -167,7 +163,6 @@ void updateWaterLevel() {
     if (waterLevel != WATERLEVEL_1) {
       waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
       waterLevel = WATERLEVEL_1;
-      digitalWrite(LED, LOW);
       irrigationPumpEnabled = true;
 
       Serial.print(F("Waterlevel "));
@@ -181,7 +176,6 @@ void updateWaterLevel() {
     if (waterLevel != WATERLEVEL_2) {
       waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
       waterLevel = WATERLEVEL_2;
-      digitalWrite(LED, LOW);
       irrigationPumpEnabled = true;
 
       Serial.print("Waterlevel ");
@@ -194,7 +188,6 @@ void updateWaterLevel() {
     if (waterLevel != WATERLEVEL_3) {
       waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
       waterLevel = WATERLEVEL_3;
-      digitalWrite(LED, LOW);
       irrigationPumpEnabled = true;
 
       Serial.print("Waterlevel ");
@@ -208,7 +201,6 @@ void updateWaterLevel() {
     if (waterLevel != WATERLEVEL_4) {
       waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
       waterLevel = WATERLEVEL_4;
-      digitalWrite(LED, LOW);
       irrigationPumpEnabled = true;
 
       Serial.print(F("Waterlevel "));
@@ -221,7 +213,6 @@ void updateWaterLevel() {
     if (waterLevel != WATERLEVEL_FULL) {
       waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
       waterLevel = WATERLEVEL_FULL;
-      digitalWrite(LED, LOW);
       irrigationPumpEnabled = true;
 
       Serial.print(F("Waterlevel "));
@@ -297,24 +288,22 @@ void controlIrrigationPump() {
   waterPressure = analogRead(A0);
 
   if (irrigationPumpEnabled) {
-    if (waterPressureHysteresis > 0) {
-      --waterPressureHysteresis;
+    if (irrigationPumpHysteresis > 0) {
+      --irrigationPumpHysteresis;
     } else if (irrigationPumpActive
         && (waterPressure > WATERPRESSURE_HIGH_END)) {
       irrigationPumpActive = false;
-      waterPressureHysteresis = WATERPRESSURE_HIGH_HYSTERESIS;
       portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_OFF); // turn off irrigation pump
       Serial.println(F("Switched off irrigation pump because water-pressure beyond upper boundary"));
     } else if (!irrigationPumpActive
         && (waterPressure < WATERPRESSURE_LOW_END)) {
       irrigationPumpActive = true;
-      waterPressureHysteresis = WATERPRESSURE_LOW_HYSTERESIS;
       portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_ON); // turn on irrigation pump
       Serial.println(F("Switched on irrigation pump because water-pressure below lower boundary"));
     }
   } else if (irrigationPumpActive) {
     irrigationPumpActive = false;
-    waterPressureHysteresis = WATERPRESSURE_HIGH_HYSTERESIS;
+    irrigationPumpHysteresis = PUMP_IRRIGATION_HYSTERESIS;
     portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_OFF); // turn off irrigation pump
     Serial.println(F("Switched off irrigation pump because no water left in container"));
   }
@@ -469,46 +458,42 @@ void wifiConnected() {
   // Setup REST endpoints
   httpRestServer.on("/rssi", HTTP_GET, handleRSSI);
   httpRestServer.on("/config", HTTP_GET, handleGetConfig);
-  httpRestServer.on("/", HTTP_GET, []() {
-      httpRestServer.send(200, F("text/html"), F("Welcome to the REST Web Server"));
+  httpRestServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+      request->send(200, F("text/html"), F("Welcome to the REST Web Server"));
     });
   httpRestServer.onNotFound(handleNotFound);
   
+  httpRestServer.addHandler(&sseHandler);
   httpRestServer.begin();
 
 }
 
-void handleNotFound() {
+void handleNotFound(AsyncWebServerRequest *request) {
 
   String message = F("File Not Found\n\n");
   message += F("URI: ");
-  message += httpRestServer.uri();
+  message += request->url();
   message += F("\nMethod: ");
-  message += (httpRestServer.method() == HTTP_GET) ? "GET" : "POST";
-  message += F("\nArguments: ");
-  message += httpRestServer.args();
+  message += request->methodToString();
   message += "\n";
-  for (uint8_t i = 0; i < httpRestServer.args(); i++) {
-    message += " " + httpRestServer.argName(i) + ": " + httpRestServer.arg(i) + "\n";
-  }
-  httpRestServer.send(404, F("text/plain"), message);
+  request->send(404, F("text/plain"), message);
 
 }
 
-void handleRSSI() {
+void handleRSSI(AsyncWebServerRequest *request) {
 
   char rssi[16];
   snprintf(rssi, sizeof rssi, "%i", WiFi.RSSI());
   String message = F("RSSI: ");
   message += rssi;
   message += " dB";
-  httpRestServer.send(200, F("text/plain"), message);
+  request->send(200, F("text/plain"), message);
 
 }
 
-void handleGetConfig() {
+void handleGetConfig(AsyncWebServerRequest *request) {
 
-  if(!LittleFS.begin()){
+  if(!LittleFS.begin()) {
     Serial.println(F("An Error has occurred while mounting LittleFS"));
     return;
   }
@@ -519,11 +504,13 @@ void handleGetConfig() {
     return;
   }
 
-  uint16_t sent = httpRestServer.streamFile(file, "application/json");
-  if (sent != file.size()) {
-    Serial.println(F("Sent less data than expected"));
+  AsyncResponseStream *response = request->beginResponseStream("application/json");
+  while (file.available() > 0) {
+    String line = file.readString();
+    response->print(line);
   }
-  
+  request->send(response);
+
   file.close();
 
 }
@@ -532,7 +519,7 @@ void wifiDisconnected() {
   
   Serial.println(F("WiFi disconnected!"));
 
-  httpRestServer.stop();
+  httpRestServer.end();
 
 }
 

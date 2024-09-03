@@ -12,14 +12,24 @@ well.
 
 ## Hardware
 
+The firmware is compatible to any [NodeMCU modul](https://www.amazon.de/dp/B06Y1ZPNMS) or
+[Mini module with external antennas](https://www.amazon.de/dp/B0CT9K2XHK).
+
 An MCP23017 (I2C) is used control LEDs and relais, because the system is able to control
 two pumps, six valves and has three LEDs which is in total 16 GPIOs which is more than
 the board provides.
+
+For measurment of pressure a [sensor](https://www.amazon.de/dp/B07SYLH59Q) ([sensor values](./readme/sensor-values.xlsx))
+is used connected to the ADC pin.
 
 ## Build
 
 A file `settings.h` contains all `#define` commands for base properties (e.g. WIFI, etc.).
 Add this file by copying this template and adapt the values according to your environment.
+
+Additionally, one needs to add [ESPAsyncWebServer](https://github.com/me-no-dev/ESPAsyncWebServer/archive/master.zip)
+and [ESPAsyncTCP](https://github.com/me-no-dev/ESPAsyncTCP/archive/master.zip) to
+the sketch (Menü `Sketch` > 'Include Library` > `Add .ZIP Library...`).
 
 ## Configuration file
 
