@@ -1,0 +1,145 @@
+.status-main {
+    min-width: 100%;
+}
+
+.status-table {
+    min-width: 100%;
+}
+
+.status-table > tbody > tr > td:nth-child(1) {
+    height: 2rem;
+    font-weight: bold;
+    width: 9rem;
+}
+
+.status-table > tbody > tr > td:nth-child(2) {
+    display: flex;
+    flex-direction: row;
+}
+
+.status-table > tbody > tr > td:nth-child(2) > div {
+    height: 2rem;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+
+.led-off, .led-off::before {
+    content: " ";
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    margin: 0 auto;
+    background-color: black;
+}
+
+.led-flashing-red::before {
+    animation: flashing 1s infinite;
+    position: absolute;
+    background-color: red;
+}
+
+.led-flashing-yellow::before {
+    animation: flashing 1s infinite;
+    position: absolute;
+    background-color: yellow;
+}
+
+.led-flashing-green::before {
+    animation: flashing 1s infinite;
+    position: absolute;
+    background-color: #00ff00;
+}
+
+@-webkit-keyframes flashing {
+    0%   {
+        opacity: 0
+    }
+    75%   {
+        opacity: 0
+    }
+    76%   {
+        opacity: 1
+    }
+    100%   {
+        opacity: 1
+    }
+}
+
+.led-blinking-red::before {
+    animation: blinking 1s infinite;
+    position: absolute;
+    background-color: red;
+}
+
+.led-blinking-yellow::before {
+    animation: blinking 1s infinite;
+    position: absolute;
+    background-color: yellow;
+}
+
+.led-blinking-green::before {
+    animation: blinking 1s infinite;
+    position: absolute;
+    background-color: #00ff00;
+}
+
+@-webkit-keyframes blinking {
+    0%   {
+        opacity: 0
+    }
+    50%   {
+        opacity: 0
+    }
+    51%   {
+        opacity: 1
+    }
+    100%   {
+        opacity: 1
+    }
+}
+
+.led-blinking-fast-yellow::before {
+    animation: blinking-fast 1s infinite;
+    position: absolute;
+    background-color: yellow;
+}
+
+.led-blinking-fast-green::before {
+    animation: blinking-fast 1s infinite;
+    position: absolute;
+    background-color: #00ff00;
+}
+
+.led-blinking-fast-red::before {
+     animation: blinking-fast 1s infinite;
+     position: absolute;
+     background-color: red;
+ }
+
+@-webkit-keyframes blinking-fast {
+    0%   {
+        opacity: 0
+    }
+    25%   {
+        opacity: 0
+    }
+    26%   {
+        opacity: 1
+    }
+    50%   {
+        opacity: 1
+    }
+    51%   {
+        opacity: 0
+    }
+    75%   {
+        opacity: 0
+    }
+    76%   {
+        opacity: 1
+    }
+    100%   {
+        opacity: 1
+    }
+}

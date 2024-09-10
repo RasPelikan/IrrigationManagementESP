@@ -1,3 +1,11 @@
+#include <AsyncPrinter.h>
+#include <DebugPrintMacros.h>
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncTCPbuffer.h>
+#include <SyncClient.h>
+#include <async_config.h>
+#include <tcp_axtls.h>
+
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
@@ -12,7 +20,16 @@
 #include <ArduinoJson.h>
 
 AsyncWebServer httpRestServer(80);
-AsyncEventSource sseHandler("/events");
+AsyncEventSource statusEvents("/api/status-events");
+uint8 numberOfStatusEventsClients = 0;
+
+#define STATUS_UPDATE_ALL 0
+#define STATUS_UPDATE_WELLPUMP 1
+#define STATUS_UPDATE_IRRIGATIONPUMP 2
+#define STATUS_UPDATE_RSSI 3
+#define STATUS_UPDATE_TIME 4
+#define STATUS_UPDATE_WATERPRESSURE 5
+#define STATUS_UPDATE_WATERLEVEL 6
 
 #define PORT_EXPANDER_ADDR 0 // Adresse 0x20 / 0
 Adafruit_MCP23X17 portExpander;
@@ -87,7 +104,7 @@ uint8 lastMinute = 0;
 uint8 waterLevel = 101; // means print current level on startup
 uint8 waterStatusHysteresis = 0;
 bool wellPumpActive = false;
-uint8 irrigationPumpHysteresis = 0;
+//uint8 irrigationPumpHysteresis = 0;
 uint8 wellPumpInterval = PUMP_WELL_SLEEP;  // means wait for sleep interval on startup
 int waterPressure = 0;
 bool irrigationPumpEnabled = false;
@@ -155,6 +172,7 @@ void updateWaterLevel() {
       waterLevel = WATERLEVEL_EMPTY;
       irrigationPumpEnabled = false;
 
+      updateStatusClients(STATUS_UPDATE_WATERLEVEL);
       Serial.print(F("Waterlevel "));
       Serial.print(WATERLEVEL_EMPTY);
       Serial.println(F("%"));
@@ -165,6 +183,7 @@ void updateWaterLevel() {
       waterLevel = WATERLEVEL_1;
       irrigationPumpEnabled = true;
 
+      updateStatusClients(STATUS_UPDATE_WATERLEVEL);
       Serial.print(F("Waterlevel "));
       Serial.print(WATERLEVEL_EMPTY);
       Serial.print(F("-"));
@@ -178,6 +197,7 @@ void updateWaterLevel() {
       waterLevel = WATERLEVEL_2;
       irrigationPumpEnabled = true;
 
+      updateStatusClients(STATUS_UPDATE_WATERLEVEL);
       Serial.print("Waterlevel ");
       Serial.print(WATERLEVEL_1);
       Serial.print("-");
@@ -190,6 +210,7 @@ void updateWaterLevel() {
       waterLevel = WATERLEVEL_3;
       irrigationPumpEnabled = true;
 
+      updateStatusClients(STATUS_UPDATE_WATERLEVEL);
       Serial.print("Waterlevel ");
       Serial.print(WATERLEVEL_2);
       Serial.print("-");
@@ -203,6 +224,7 @@ void updateWaterLevel() {
       waterLevel = WATERLEVEL_4;
       irrigationPumpEnabled = true;
 
+      updateStatusClients(STATUS_UPDATE_WATERLEVEL);
       Serial.print(F("Waterlevel "));
       Serial.print(WATERLEVEL_3);
       Serial.print(F("-"));
@@ -215,6 +237,7 @@ void updateWaterLevel() {
       waterLevel = WATERLEVEL_FULL;
       irrigationPumpEnabled = true;
 
+      updateStatusClients(STATUS_UPDATE_WATERLEVEL);
       Serial.print(F("Waterlevel "));
       Serial.print(WATERLEVEL_FULL);
       Serial.println(F("%"));
@@ -231,6 +254,7 @@ void controlWellPump() {
 
   if (wellPumpInterval > 0) {  // avoid overflow if cycle is set to 0
     --wellPumpInterval;
+    updateStatusClients(STATUS_UPDATE_WELLPUMP);
   }
   if (wellPumpInterval > 0) {
     return;
@@ -252,6 +276,7 @@ void activateOrDeactivateWellPumpIfContainerIsNotFull() {
     portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_OFF);
     wellPumpInterval = PUMP_WELL_SLEEP;
 
+    updateStatusClients(STATUS_UPDATE_WELLPUMP);
     Serial.print(F("Switched off well pump for "));
     Serial.print(PUMP_WELL_SLEEP);
     Serial.println(F(" minutes"));
@@ -260,6 +285,7 @@ void activateOrDeactivateWellPumpIfContainerIsNotFull() {
     portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_ON);
     wellPumpInterval = PUMP_WELL_RUN;
 
+    updateStatusClients(STATUS_UPDATE_WELLPUMP);
     Serial.print(F("Switched on well pump for "));
     Serial.print(PUMP_WELL_RUN);
     Serial.println(F(" minutes"));
@@ -276,6 +302,7 @@ void switchOfWellPumpIfContainerIsFull() {
       wellPumpActive = false;
       portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_OFF);
 
+      updateStatusClients(STATUS_UPDATE_WELLPUMP);
       Serial.println(F("Switched off well pump because container is full"));
       return;
 
@@ -285,26 +312,33 @@ void switchOfWellPumpIfContainerIsFull() {
 
 void controlIrrigationPump() {
 
+  int previousPressure = waterPressure;
   waterPressure = analogRead(A0);
+  if (abs(previousPressure - waterPressure) > 1) {
+    updateStatusClients(STATUS_UPDATE_WATERPRESSURE);
+  }
 
   if (irrigationPumpEnabled) {
-    if (irrigationPumpHysteresis > 0) {
+    /* if (irrigationPumpHysteresis > 0) {
       --irrigationPumpHysteresis;
-    } else if (irrigationPumpActive
+    } else*/ if (irrigationPumpActive
         && (waterPressure > WATERPRESSURE_HIGH_END)) {
       irrigationPumpActive = false;
       portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_OFF); // turn off irrigation pump
+      updateStatusClients(STATUS_UPDATE_IRRIGATIONPUMP);
       Serial.println(F("Switched off irrigation pump because water-pressure beyond upper boundary"));
     } else if (!irrigationPumpActive
         && (waterPressure < WATERPRESSURE_LOW_END)) {
       irrigationPumpActive = true;
       portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_ON); // turn on irrigation pump
+      updateStatusClients(STATUS_UPDATE_IRRIGATIONPUMP);
       Serial.println(F("Switched on irrigation pump because water-pressure below lower boundary"));
     }
   } else if (irrigationPumpActive) {
     irrigationPumpActive = false;
-    irrigationPumpHysteresis = PUMP_IRRIGATION_HYSTERESIS;
+    //irrigationPumpHysteresis = PUMP_IRRIGATION_HYSTERESIS;
     portExpander.digitalWrite(GPIO_PUMP_IRRIGATION, RELAIS_OFF); // turn off irrigation pump
+    updateStatusClients(STATUS_UPDATE_IRRIGATIONPUMP);
     Serial.println(F("Switched off irrigation pump because no water left in container"));
   }
 
@@ -369,7 +403,7 @@ void blinkWellPumpLed() {
       portExpander.digitalWrite(GPIO_PUMP_WELL_LED, LOW);
     }
   } else if (wellPumpInterval > 0) {
-    if (interval % 2 == 0) { // blinking fast
+    if (interval == 0) { // flash
       portExpander.digitalWrite(GPIO_PUMP_WELL_LED, HIGH);
     } else {
       portExpander.digitalWrite(GPIO_PUMP_WELL_LED, LOW);
@@ -455,16 +489,83 @@ void wifiConnected() {
   Serial.print(F("Connected to WiFi: "));
   Serial.println(WiFi.localIP().toString());
 
+  if(!LittleFS.begin()) {
+    Serial.println(F("An error has occurred on mounting LittleFS"));
+    return;
+  }
+
   // Setup REST endpoints
   httpRestServer.on("/rssi", HTTP_GET, handleRSSI);
   httpRestServer.on("/config", HTTP_GET, handleGetConfig);
-  httpRestServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-      request->send(200, F("text/html"), F("Welcome to the REST Web Server"));
-    });
   httpRestServer.onNotFound(handleNotFound);
-  
-  httpRestServer.addHandler(&sseHandler);
+  httpRestServer
+      .serveStatic("/", LittleFS, "/www/")
+      .setDefaultFile("index.html")
+      .setCacheControl("max-age=0")
+      .setAuthentication(WWW_USERNAME, WWW_PASSWORD);
+  statusEvents.onConnect(webappInitStatus);
+  httpRestServer.addHandler(&statusEvents);
   httpRestServer.begin();
+
+}
+
+void webappInitStatus(AsyncEventSourceClient *client) {
+
+  if(client->lastId()){
+    Serial.printf("Client reconnected! Last message ID that it got is: %u\n", client->lastId());
+  }
+  if (client->connected()) {
+    numberOfStatusEventsClients += 1;
+    Serial.printf("Connect status client: %u -> %u\n", client->client()->remotePort(), numberOfStatusEventsClients);
+    client->client()->onDisconnect(disconnectStatusClient, NULL);
+    updateStatusClients(STATUS_UPDATE_ALL);
+  }
+
+}
+
+void updateStatusClients(uint8 what) {
+
+    if (numberOfStatusEventsClients == 0) {
+      return;
+    }
+
+    JsonDocument doc;
+    if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_RSSI)) {
+      doc["rssi"] = WiFi.RSSI();
+    }
+    if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_TIME)) {
+      if (now != 0) {  // wait for first NTP update
+        time(&now);
+        char isoTimestamp[sizeof "2011-10-08T07:07:09.000Z"];
+        strftime(isoTimestamp, sizeof isoTimestamp, "%FT%T.000Z", gmtime(&now));
+        doc["currentDate"] = isoTimestamp;
+      }
+    }
+    if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_WATERLEVEL)) {
+      doc["waterLevel"] = waterLevel;
+    }
+    if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_WATERPRESSURE)) {
+      doc["waterPressure"] = waterPressure;
+    }
+    if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_WELLPUMP)) {
+      doc["wellPump"] = wellPumpActive ? "active-cycle" : wellPumpInterval > 0 ? "inactive-cycle" : "inactive";
+      doc["wellPumpCycle"] = wellPumpInterval;
+      doc["wellPumpMode"] = "auto";
+    }
+    if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_IRRIGATIONPUMP)) {
+      doc["irrigationPump"] = irrigationPumpActive ? "active" : !irrigationPumpEnabled ? "out-of-water" : "inactive";
+      doc["irrigationPumpMode"] = "auto";
+    }
+    char initialStatusEvent[300];
+    serializeJson(doc, initialStatusEvent);
+    statusEvents.send(initialStatusEvent, what == 0 ? "INIT" : "UPDATE", millis(), 1000);
+
+}
+
+void disconnectStatusClient(void *arg, AsyncClient *client) {
+
+  numberOfStatusEventsClients -= 1;
+  Serial.printf("Disconnect status client: %u -> %u\n", client->remotePort(), numberOfStatusEventsClients);
 
 }
 
@@ -492,11 +593,6 @@ void handleRSSI(AsyncWebServerRequest *request) {
 }
 
 void handleGetConfig(AsyncWebServerRequest *request) {
-
-  if(!LittleFS.begin()) {
-    Serial.println(F("An Error has occurred while mounting LittleFS"));
-    return;
-  }
   
   File file = LittleFS.open(F("/config.json"), "r");
   if(!file){
