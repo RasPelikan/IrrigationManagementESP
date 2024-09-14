@@ -66,6 +66,11 @@ Adafruit_MCP23X17 portExpander;
 #define WIFI_STATUS_WAITING_FOR_NTP 2
 #define WIFI_STATUS_NTP_ACTIVE 3
 
+#define MODE_WELLPUMP_ON 1
+#define MODE_WELLPUMP_AUTO 0
+#define MODE_WELLPUMP_OFF 2
+#define MODE_WELLPUMP_PARAM "mode"
+
 #define MY_NTP_SERVER "at.pool.ntp.org"
 #define MY_TZ "CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00"  // https://remotemonitoringsystems.ca/time-zone-abbreviations.php
 
@@ -104,6 +109,7 @@ uint8 lastMinute = 0;
 uint8 waterLevel = 101; // means print current level on startup
 uint8 waterStatusHysteresis = 0;
 bool wellPumpActive = false;
+uint8 wellPumpMode = MODE_WELLPUMP_AUTO;
 //uint8 irrigationPumpHysteresis = 0;
 uint8 wellPumpInterval = PUMP_WELL_SLEEP;  // means wait for sleep interval on startup
 int waterPressure = 0;
@@ -250,61 +256,102 @@ void updateWaterLevel() {
 // a cycle of 45/15 minutes (according to pump specification)
 void controlWellPump() {
 
-  switchOfWellPumpIfContainerIsFull();
+  switchOffWellPumpIfContainerIsFull();
 
-  if (wellPumpInterval > 0) {  // avoid overflow if cycle is set to 0
-    --wellPumpInterval;
-    updateStatusClients(STATUS_UPDATE_WELLPUMP);
-  }
-  if (wellPumpInterval > 0) {
-    return;
-  }
-
-  // after interval completed switch well pump on or off
   activateOrDeactivateWellPumpIfContainerIsNotFull();
 
 }
 
 void activateOrDeactivateWellPumpIfContainerIsNotFull() {
 
+  if (wellPumpInterval > 0) {  // avoid overflow if cycle is set to 0
+    --wellPumpInterval;
+    updateStatusClients(STATUS_UPDATE_WELLPUMP);
+  }
+
   if (waterLevel == WATERLEVEL_FULL) {
     return;
   }
 
-  if (wellPumpActive) {
-    wellPumpActive = false;
-    portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_OFF);
-    wellPumpInterval = PUMP_WELL_SLEEP;
+  if (wellPumpMode == MODE_WELLPUMP_ON) {
+    if (!wellPumpActive) {
+      switchOnWellPump();
+    } else if (wellPumpInterval == 0) {
+      switchOffWellPump(false);
+    }
+    return;
+  } else if (wellPumpMode == MODE_WELLPUMP_OFF) {
+    if (wellPumpActive) {
+      switchOffWellPump(false);
+    }
+    return;
+  } else if (wellPumpInterval > 0) {
+    return;
+  }
 
-    updateStatusClients(STATUS_UPDATE_WELLPUMP);
-    Serial.print(F("Switched off well pump for "));
-    Serial.print(PUMP_WELL_SLEEP);
-    Serial.println(F(" minutes"));
+  // after interval completed switch well pump on or off
+  wellPumpMode = MODE_WELLPUMP_AUTO;
+  if (wellPumpActive) {
+    switchOffWellPump(true);
   } else {
+    switchOnWellPump();
+  }
+
+}
+
+void switchOnWellPump() {
+
     wellPumpActive = true;
     portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_ON);
     wellPumpInterval = PUMP_WELL_RUN;
 
     updateStatusClients(STATUS_UPDATE_WELLPUMP);
+
     Serial.print(F("Switched on well pump for "));
     Serial.print(PUMP_WELL_RUN);
     Serial.println(F(" minutes"));
-  }
 
 }
 
-void switchOfWellPumpIfContainerIsFull() {
+void switchOffWellPump(bool setInterval) {
+
+    wellPumpActive = false;
+    portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_OFF);
+    if (setInterval) {
+      wellPumpInterval = PUMP_WELL_SLEEP;
+    } else {
+      wellPumpInterval = 0;
+    }
+
+    updateStatusClients(STATUS_UPDATE_WELLPUMP);
+
+    if (setInterval) {
+      Serial.print(F("Switched off well pump for "));
+      Serial.print(PUMP_WELL_SLEEP);
+      Serial.println(F(" minutes"));
+    } else {
+      Serial.println(F("Switched off well pump"));
+    }
+
+}
+
+void switchOffWellPumpIfContainerIsFull() {
 
     // if container is full, then switch off well pump
-    if ((waterLevel == WATERLEVEL_FULL) && wellPumpActive) {
+    if (waterLevel == WATERLEVEL_FULL) {
 
-      wellPumpInterval = PUMP_WELL_SLEEP;
-      wellPumpActive = false;
-      portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_OFF);
+      if (wellPumpActive) {
 
-      updateStatusClients(STATUS_UPDATE_WELLPUMP);
-      Serial.println(F("Switched off well pump because container is full"));
-      return;
+        wellPumpMode = MODE_WELLPUMP_AUTO;
+        switchOffWellPump(true);
+
+        Serial.println(F("Switched off well pump because container is full"));
+
+      } else if (wellPumpMode == MODE_WELLPUMP_AUTO) {
+
+        Serial.println(F("Disable well pump because container is full"));
+
+      }
 
     }
 
@@ -497,11 +544,12 @@ void wifiConnected() {
   // Setup REST endpoints
   httpRestServer.on("/rssi", HTTP_GET, handleRSSI);
   httpRestServer.on("/config", HTTP_GET, handleGetConfig);
+  httpRestServer.on("/api/well-pump", HTTP_POST, handleWellPumpMode);
   httpRestServer.onNotFound(handleNotFound);
   httpRestServer
       .serveStatic("/", LittleFS, "/www/")
       .setDefaultFile("index.html")
-      .setCacheControl("max-age=0")
+      .setCacheControl("no-cache, no-store, max-age=0")
       .setAuthentication(WWW_USERNAME, WWW_PASSWORD);
   statusEvents.onConnect(webappInitStatus);
   httpRestServer.addHandler(&statusEvents);
@@ -550,7 +598,7 @@ void updateStatusClients(uint8 what) {
     if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_WELLPUMP)) {
       doc["wellPump"] = wellPumpActive ? "active-cycle" : wellPumpInterval > 0 ? "inactive-cycle" : "inactive";
       doc["wellPumpCycle"] = wellPumpInterval;
-      doc["wellPumpMode"] = "auto";
+      doc["wellPumpMode"] = wellPumpMode == 0 ? "auto" : wellPumpMode == 1 ? "on" : "off";
     }
     if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_IRRIGATIONPUMP)) {
       doc["irrigationPump"] = irrigationPumpActive ? "active" : !irrigationPumpEnabled ? "out-of-water" : "inactive";
@@ -589,6 +637,30 @@ void handleRSSI(AsyncWebServerRequest *request) {
   message += rssi;
   message += " dB";
   request->send(200, F("text/plain"), message);
+
+}
+
+void handleWellPumpMode(AsyncWebServerRequest *request) {
+
+  request->send(200, F("text/plain"), F(""));
+  if (request->hasParam(MODE_WELLPUMP_PARAM, true)) {
+    String value = request->getParam(MODE_WELLPUMP_PARAM, true)->value();
+    bool updated = false;
+    if (value.equals(F("auto")) && (wellPumpMode != MODE_WELLPUMP_AUTO)) {
+      wellPumpMode = MODE_WELLPUMP_AUTO;
+      updated = true;
+    } else if (value.equals(F("on")) && (wellPumpMode != MODE_WELLPUMP_ON)) {
+      wellPumpMode = MODE_WELLPUMP_ON;
+      updated = true;
+    } else if (value.equals(F("off")) && (wellPumpMode != MODE_WELLPUMP_OFF)) {
+      wellPumpMode = MODE_WELLPUMP_OFF;
+      updated = true;
+    }
+    if (updated) {
+      updateStatusClients(STATUS_UPDATE_WELLPUMP);
+      controlWellPump();
+    }
+  }
 
 }
 

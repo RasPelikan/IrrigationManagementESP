@@ -9,7 +9,7 @@
 .status-table > tbody > tr > td:nth-child(1) {
     height: 2rem;
     font-weight: bold;
-    width: 9rem;
+    width: 6.5rem;
 }
 
 .status-table > tbody > tr > td:nth-child(2) {
@@ -22,6 +22,29 @@
     display: flex;
     flex-direction: row;
     align-items: center;
+    gap: 1rem;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.status-table > tbody > tr > td:nth-child(2) > div > div {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.status-table > tbody > tr > td:nth-child(2) > div > div > button {
+    max-width: 1.25rem;
+    min-width: 1.25rem;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-color: lightgrey;
+    border: none;
+    padding: 0.25rem;
+    border-radius: 0.25rem;
 }
 
 .led-off, .led-off::before {

@@ -9,7 +9,7 @@ interface ImStatus {
   irrigationPump: 'active' | 'inactive' | 'out-of-water';
   irrigationPumpMode: 'active' | 'inactive' | 'auto';
   wellPump: 'active-cycle' | 'inactive-cycle' | 'inactive';
-  wellPumpMode: 'active' | 'inactive' | 'auto';
+  wellPumpMode: 'on' | 'off' | 'auto';
   wellPumpCycle: number | undefined;
 }
 
@@ -20,6 +20,7 @@ const Status = ({}) => {
   });
 
   const [ currentDate, setCurrentDate ] = useState<Date | undefined>(undefined);
+  const timerRef = useRef<number>(-1);
   const [ status, setStatus ] = useState<ImStatus>({
     irrigationPump: "inactive",
     irrigationPumpMode: "auto",
@@ -50,8 +51,14 @@ const Status = ({}) => {
       if (data['currentDate']) {
         setCurrentDate(new Date(data['currentDate']));
       }
+      timerRef.current = setInterval((offset: number) => {
+        setCurrentDate((prevCurrentDate) => new Date(prevCurrentDate.getTime() + 1000));
+      }, 1000);
     });
     return () => {
+      if (timerRef.current !== -1) {
+        clearInterval(timerRef.current);
+      }
       setConnected(false);
       setCurrentDate(undefined);
       setStatus(undefined);
@@ -75,12 +82,13 @@ const Status = ({}) => {
     return () => eventSource.current.removeEventListener('UPDATE', updateEventListener)
   }, [ status, setStatus, setCurrentDate, eventSource.current ]);
 
-  useEffect(() => {
-    const timer = setInterval((offset: number) => {
-      setCurrentDate((prevCurrentDate) => new Date(prevCurrentDate.getTime() + 1000));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [ setCurrentDate ]);
+  const setWellPumpMode = (mode: 'on' | 'off' | 'auto') => {
+    fetch('/api/well-pump', {
+      method: 'POST',
+      headers: new Headers({ 'Content-Type': 'application/x-www-form-urlencoded' }),
+      body: `mode=${mode}`
+    }).catch(error => console.log(error));
+  };
 
   return (
       <div className="status-main">
@@ -121,46 +129,72 @@ const Status = ({}) => {
                   </td>
                 </tr>
                 <tr>
-                  <td>Well-pump:</td>
+                  <td>Well-P.:</td>
                   <td>
                     <div>
-                      {
-                        status.wellPump === "active-cycle"
-                            ? <div className="led-off led-blinking-yellow"></div>
-                            : status.wellPump === "inactive-cycle"
-                                ? <div className="led-off led-flashing-yellow"></div>
-                                : <div className="led-off"></div>
-                      }
-                      &nbsp;
-                      {
-                        status.wellPump === "active-cycle"
-                            ? `active (${status.wellPumpCycle} mins)`
-                            : status.wellPump === "inactive-cycle"
-                            ? `inactive (${status.wellPumpCycle} mins)`
-                            : "off"
-                      }
+                      <div>
+                        {
+                          status.wellPump === "active-cycle"
+                              ? <div className="led-off led-blinking-yellow"></div>
+                              : status.wellPump === "inactive-cycle"
+                                  ? <div className="led-off led-flashing-yellow"></div>
+                                  : <div className="led-off"></div>
+                        }
+                        &nbsp;
+                        {
+                          status.wellPump === "active-cycle"
+                              ? `active ${ status.wellPumpCycle === 0 ? '' : `(${status.wellPumpCycle} mins)` }`
+                              : status.wellPump === "inactive-cycle"
+                                  ? `inactive ${ status.wellPumpCycle === 0 ? '' : `(${status.wellPumpCycle} mins)` }`
+                                  : "off"
+                        }
+                      </div>
+                      <div>
+                        <button
+                            style={ status.wellPumpMode === 'on' ? { backgroundColor: 'grey', color: 'white' } : undefined }
+                            onClick={ () => setWellPumpMode('on') }>
+                          1
+                        </button>
+                        <button
+                            style={ status.wellPumpMode === 'auto' ? { backgroundColor: 'grey', color: 'white' } : undefined }
+                            onClick={ () => setWellPumpMode('auto') }>
+                          A
+                        </button>
+                        <button
+                            style={ status.wellPumpMode === 'off' ? { backgroundColor: 'grey', color: 'white' } : undefined }
+                            onClick={ () => setWellPumpMode('off') }>
+                          0
+                        </button>
+                      </div>
                     </div>
                   </td>
                 </tr>
                 <tr>
-                  <td>Irrigation-pump:</td>
+                  <td>Irrigation-P.:</td>
                   <td>
                     <div>
-                      {
-                        status.irrigationPump === "active"
-                            ? <div className="led-off led-blinking-red"></div>
-                            : status.irrigationPump === "out-of-water"
-                                ? <div className="led-off led-blinking-fast-red"></div>
-                                : <div className="led-off"></div>
-                      }
-                      &nbsp;
-                      {
-                        status.irrigationPump === "active"
-                            ? "active"
-                            : status.irrigationPump === "out-of-water"
-                                ? "inactive"
-                                : "off"
-                      }
+                      <div>
+                        {
+                          status.irrigationPump === "active"
+                              ? <div className="led-off led-blinking-red"></div>
+                              : status.irrigationPump === "out-of-water"
+                                  ? <div className="led-off led-blinking-fast-red"></div>
+                                  : <div className="led-off"></div>
+                        }
+                        &nbsp;
+                        {
+                          status.irrigationPump === "active"
+                              ? "active"
+                              : status.irrigationPump === "out-of-water"
+                                  ? "inactive"
+                                  : "off"
+                        }
+                      </div>
+                      <div>
+                        <button>1</button>
+                        <button>A</button>
+                        <button>0</button>
+                      </div>
                     </div>
                   </td>
                 </tr>
