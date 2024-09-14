@@ -1,5 +1,5 @@
-#define GPIO_PUMP_WELL 9 // GPB1
-#define GPIO_PUMP_WELL_LED 6 // GPA6
+#define GPIO_WELLPUMP 9 // GPB1
+#define GPIO_WELLPUMP_LED 6 // GPA6
 
 #define MODE_WELLPUMP_ON 1
 #define MODE_WELLPUMP_AUTO 0
@@ -8,20 +8,20 @@
 
 bool wellPumpActive = false;
 uint8 wellPumpMode = MODE_WELLPUMP_AUTO;
-uint8 wellPumpInterval = PUMP_WELL_SLEEP;  // means wait for sleep interval on startup
+uint8 wellPumpInterval = WELLPUMP_SLEEP;  // means wait for sleep interval on startup
+
+void setupWellPump() {
+
+  portExpander.pinMode(GPIO_WELLPUMP_LED, OUTPUT);
+
+  portExpander.pinMode(GPIO_WELLPUMP, OUTPUT);
+  portExpander.digitalWrite(GPIO_WELLPUMP, RELAIS_OFF);
+
+}
 
 void setupWellPumpEndpoints() {
 
   httpRestServer.on("/api/well-pump", HTTP_POST, handleWellPumpMode);
-
-}
-
-void setupWellPump() {
-
-  portExpander.pinMode(GPIO_PUMP_WELL_LED, OUTPUT);
-
-  portExpander.pinMode(GPIO_PUMP_WELL, OUTPUT);
-  portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_OFF);
 
 }
 
@@ -75,13 +75,13 @@ void activateOrDeactivateWellPumpIfContainerIsNotFull() {
 void switchOnWellPump() {
 
     wellPumpActive = true;
-    portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_ON);
-    wellPumpInterval = PUMP_WELL_RUN;
+    portExpander.digitalWrite(GPIO_WELLPUMP, RELAIS_ON);
+    wellPumpInterval = WELLPUMP_RUN;
 
     updateStatusClients(STATUS_UPDATE_WELLPUMP);
 
     Serial.print(F("Switched on well pump for "));
-    Serial.print(PUMP_WELL_RUN);
+    Serial.print(WELLPUMP_RUN);
     Serial.println(F(" minutes"));
 
 }
@@ -89,9 +89,9 @@ void switchOnWellPump() {
 void switchOffWellPump(bool setInterval) {
 
     wellPumpActive = false;
-    portExpander.digitalWrite(GPIO_PUMP_WELL, RELAIS_OFF);
+    portExpander.digitalWrite(GPIO_WELLPUMP, RELAIS_OFF);
     if (setInterval) {
-      wellPumpInterval = PUMP_WELL_SLEEP;
+      wellPumpInterval = WELLPUMP_SLEEP;
     } else {
       wellPumpInterval = 0;
     }
@@ -100,7 +100,7 @@ void switchOffWellPump(bool setInterval) {
 
     if (setInterval) {
       Serial.print(F("Switched off well pump for "));
-      Serial.print(PUMP_WELL_SLEEP);
+      Serial.print(WELLPUMP_SLEEP);
       Serial.println(F(" minutes"));
     } else {
       Serial.println(F("Switched off well pump"));
@@ -134,18 +134,18 @@ void blinkWellPumpLed() {
 
   if (wellPumpActive) {
     if (interval >> 2 == 0) { // blinking slow
-      portExpander.digitalWrite(GPIO_PUMP_WELL_LED, HIGH);
+      portExpander.digitalWrite(GPIO_WELLPUMP_LED, HIGH);
     } else {
-      portExpander.digitalWrite(GPIO_PUMP_WELL_LED, LOW);
+      portExpander.digitalWrite(GPIO_WELLPUMP_LED, LOW);
     }
   } else if (wellPumpInterval > 0) {
     if (interval == 0) { // flash
-      portExpander.digitalWrite(GPIO_PUMP_WELL_LED, HIGH);
+      portExpander.digitalWrite(GPIO_WELLPUMP_LED, HIGH);
     } else {
-      portExpander.digitalWrite(GPIO_PUMP_WELL_LED, LOW);
+      portExpander.digitalWrite(GPIO_WELLPUMP_LED, LOW);
     }
   } else {
-    portExpander.digitalWrite(GPIO_PUMP_WELL_LED, LOW);
+    portExpander.digitalWrite(GPIO_WELLPUMP_LED, LOW);
   }
 
 }

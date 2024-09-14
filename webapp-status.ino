@@ -50,8 +50,7 @@ void updateStatusClients(uint8 what) {
       addWellPumpStatus(doc);
     }
     if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_IRRIGATIONPUMP)) {
-      doc["irrigationPump"] = irrigationPumpActive ? "active" : !irrigationPumpEnabled ? "out-of-water" : "inactive";
-      doc["irrigationPumpMode"] = "auto";
+      addIrrigationPumpStatus(doc);
     }
     char initialStatusEvent[300];
     serializeJson(doc, initialStatusEvent);

@@ -7,7 +7,7 @@ interface ImStatus {
   waterLevel: number;
   waterPressure: number;
   irrigationPump: 'active' | 'inactive' | 'out-of-water';
-  irrigationPumpMode: 'active' | 'inactive' | 'auto';
+  irrigationPumpMode: 'off' | 'auto';
   wellPump: 'active-cycle' | 'inactive-cycle' | 'inactive';
   wellPumpMode: 'on' | 'off' | 'auto';
   wellPumpCycle: number | undefined;
@@ -84,6 +84,14 @@ const Status = ({}) => {
 
   const setWellPumpMode = (mode: 'on' | 'off' | 'auto') => {
     fetch('/api/well-pump', {
+      method: 'POST',
+      headers: new Headers({ 'Content-Type': 'application/x-www-form-urlencoded' }),
+      body: `mode=${mode}`
+    }).catch(error => console.log(error));
+  };
+
+  const setIrrigationPumpMode = (mode: 'off' | 'auto') => {
+    fetch('/api/irrigation-pump', {
       method: 'POST',
       headers: new Headers({ 'Content-Type': 'application/x-www-form-urlencoded' }),
       body: `mode=${mode}`
@@ -191,9 +199,20 @@ const Status = ({}) => {
                         }
                       </div>
                       <div>
-                        <button>1</button>
-                        <button>A</button>
-                        <button>0</button>
+                        <button
+                            style={ status.irrigationPumpMode === 'auto'
+                                ? { backgroundColor: 'grey', color: 'white' }
+                                : undefined }
+                            onClick={ () => setIrrigationPumpMode('auto') }>
+                          A
+                        </button>
+                        <button
+                            style={ status.irrigationPumpMode === 'off'
+                                ? { backgroundColor: 'grey', color: 'white' }
+                                : undefined }
+                            onClick={ () => setIrrigationPumpMode('off') }>
+                          0
+                        </button>
                       </div>
                     </div>
                   </td>

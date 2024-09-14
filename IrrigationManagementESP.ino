@@ -256,6 +256,7 @@ void wifiConnected() {
   httpRestServer.on("/rssi", HTTP_GET, handleRSSI);
   httpRestServer.on("/config", HTTP_GET, handleGetConfig);
   setupWellPumpEndpoints();
+  setupIrrigationPumpEndpoints();
   httpRestServer.onNotFound(handleNotFound);
   httpRestServer
       .serveStatic("/", LittleFS, "/www/")
