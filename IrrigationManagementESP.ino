@@ -14,6 +14,7 @@
 #include <WiFiClient.h>
 #include <Adafruit_MCP23X17.h>
 #include <time.h>
+#include "types.h"
 #include "settings.h"
 #include "WString.h"  // https://github.com/esp8266/Arduino/blob/60fe7b4ca8cdca25366af8a7c0a7b70d32c797f8/doc/PROGMEM.rst
 #include "LittleFS.h"
@@ -49,29 +50,38 @@ Adafruit_MCP23X17 portExpander;
 #define MY_NTP_SERVER "at.pool.ntp.org"
 #define MY_TZ "CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00"  // https://remotemonitoringsystems.ca/time-zone-abbreviations.php
 
-#define STATUS_UPDATE_ALL 0
+#define STATUS_UPDATE_ALL 255
 #define STATUS_UPDATE_WELLPUMP 1
 #define STATUS_UPDATE_IRRIGATIONPUMP 2
-#define STATUS_UPDATE_RSSI 3
-#define STATUS_UPDATE_TIME 4
-#define STATUS_UPDATE_WATERPRESSURE 5
-#define STATUS_UPDATE_WATERLEVEL 6
+#define STATUS_UPDATE_RSSI 4
+#define STATUS_UPDATE_TIME 8
+#define STATUS_UPDATE_WATERPRESSURE 16
+#define STATUS_UPDATE_WATERLEVEL 32
+#define STATUS_UPDATE_ERROR 64
 
 WiFiEventHandler wifiConnectHandler;
 WiFiEventHandler wifiDisconnectHandler;
+char *error = NULL;
 
 void setup() {
 
   // Setup console output
   Serial.begin(115200);
+  Serial.println("\n\n\n\n");
+
+  if(!LittleFS.begin()) {
+    Serial.println(F("An error has occurred on mounting LittleFS"));
+    return;
+  }
 
   // Setup port expander MCP27013 for I2C address 0x20 
   if (!portExpander.begin_I2C(0x20)) {
     Serial.println(F("Could not initialize I2C port-expander on port 0x20!"));
-    while (1);
+    return;
   }
 
-  //jsonBuffer.par
+  // load parameters
+  readConfiguration();
 
   // Initialize NTP for current time and Wifi
   setupNtp();
@@ -83,6 +93,9 @@ void setup() {
   setupWaterLevel();
   setupValves();
 
+  // Initialize cycle processing
+  setupCycles();
+
 }
 
 // application status
@@ -91,12 +104,16 @@ uint8 interval = 0;
 uint8 wifiStatus = WIFI_STATUS_DISCONNECTED;
 uint8 lastMinute = 0;
 time_t now = 0;                     // this are the seconds since Epoch (1970) - UTC
-tm tm;                              // the structure tm holds time information in a more convenient way
+tm tm_now;                          // the structure tm holds time information in a more convenient way
 
 void loop() {
 
   // ignore loop execution more often than LED blink interval (1/8 second)
   unsigned long currentMillis = millis();
+  if (currentMillis < previousTime) { // handle overflow
+    previousTime = currentMillis;
+    return;
+  }
   if (currentMillis - previousTime < 125) {
     return;
   }
@@ -118,16 +135,19 @@ void loop() {
 
     if (now != 0) {  // wait for first NTP update
       time(&now);    // this function calls the NTP server only every hour
-      localtime_r(&now, &tm);
+      localtime_r(&now, &tm_now);
     }
 
-    if (tm.tm_min != lastMinute) { // every minute
-      lastMinute = tm.tm_min;
+    if (tm_now.tm_min != lastMinute) { // every minute
+      lastMinute = tm_now.tm_min;
       printTime(now);
 
       // 4. controll well pump
       controlWellPump();
 
+      // 5. do irrigation
+      checkForActiveCycles();
+      
       // reactive Wifi if connection lost
       if (wifiStatus == WIFI_STATUS_DISCONNECTED) {
         activateWifi();
@@ -193,7 +213,7 @@ void activateWifi() {
   wifiStatus = WIFI_STATUS_CONNECTING;
 
   WiFi.persistent(false);
-  WiFi.setAutoReconnect(false);
+  WiFi.setAutoReconnect(false); // reconnect is done manually every minute
   WiFi.mode(WIFI_STA);
   #ifdef WIFI_PORT
     unsigned char wifiMac[18] = WIFI_MAC;
@@ -223,10 +243,11 @@ void ntpTimeIsSet(bool from_sntp /* <= this parameter is optional */) {
   wifiStatus = WIFI_STATUS_NTP_ACTIVE;
   if (now == 0) {   // first NTP sync
     time(&now);
-    localtime_r(&now, &tm);
-    lastMinute = tm.tm_min;
+    localtime_r(&now, &tm_now);
+    lastMinute = tm_now.tm_min;
   } else {
     time(&now);
+    localtime_r(&now, &tm_now);
   }
 
   Serial.print(F("NTP update: "));
@@ -247,11 +268,6 @@ void wifiConnected() {
   Serial.print(F("Connected to WiFi: "));
   Serial.println(WiFi.localIP().toString());
 
-  if(!LittleFS.begin()) {
-    Serial.println(F("An error has occurred on mounting LittleFS"));
-    return;
-  }
-
   // Setup REST endpoints
   httpRestServer.on("/rssi", HTTP_GET, handleRSSI);
   httpRestServer.on("/config", HTTP_GET, handleGetConfig);
@@ -270,6 +286,7 @@ void wifiConnected() {
 
 void handleNotFound(AsyncWebServerRequest *request) {
 
+  Serial.println("Not found");
   String message = F("File Not Found\n\n");
   message += F("URI: ");
   message += request->url();
@@ -293,7 +310,7 @@ void handleRSSI(AsyncWebServerRequest *request) {
 
 void handleGetConfig(AsyncWebServerRequest *request) {
   
-  File file = LittleFS.open(F("/config.json"), "r");
+  File file = LittleFS.open(F(CONFIG_PATH), "r");
   if(!file){
     Serial.println(F("Failed to open `config.json` for reading"));
     return;
@@ -337,26 +354,35 @@ void setupValves() {
 
 void printTime(time_t time) {
 
-  localtime_r(&time, &tm);            // converts epoch time to tm structure
+  tm tmp_tm;
+  localtime_r(&time, &tmp_tm);          // converts epoch time to tm structure
 
-  Serial.print(tm.tm_year + 1900);  // years since 1900
-  Serial.print("-");
-  Serial.print(tm.tm_mon + 1);      // January = 0 (!)
-  Serial.print("-");
-  Serial.print(tm.tm_mday);         // day of month
-  Serial.print(" ");
-  Serial.print(tm.tm_hour);         // hours since midnight  0-23
-  Serial.print(":");
-  Serial.print(tm.tm_min);          // minutes after the hour  0-59
-  Serial.print(":");
-  Serial.print(tm.tm_sec);          // seconds after the minute  0-61*
-  Serial.print(" (day: ");
-  Serial.print(tm.tm_wday);         // days since Sunday 0-6
-  Serial.print("; daylight-saving: ");
-  if (tm.tm_isdst == 1)             // Daylight Saving Time flag
-    Serial.print("1)");
-  else
-    Serial.print("0)");
-  Serial.println();
+  Serial.printf_P(PSTR("%04u-%02u-%02u %02u:%02u:%02u (day: %u, daylight-saving: %u)\n"),
+      tmp_tm.tm_year + 1900,            // years since 1900
+      tmp_tm.tm_mon + 1,                // January = 0 (!)
+      tmp_tm.tm_mday,                   // day of month
+      tmp_tm.tm_hour,                   // hours since midnight 0-23
+      tmp_tm.tm_min,                    // minutes after the hour 0-59
+      tmp_tm.tm_sec,                    // seconds after the minute 0-59
+      tmp_tm.tm_wday,                   // days since Sunday 0-6
+      tmp_tm.tm_isdst);                 // Daylight Saving Time flag
+  
+}
+
+void setError(PGM_P format, ...) {
+  
+  if (error != NULL) {
+    return;
+  }
+
+  error = new char[MAX_ERROR_LENGTH];
+  va_list arg;
+  va_start(arg, format);
+  vsnprintf_P(error, MAX_ERROR_LENGTH, format, arg);
+  va_end(arg);
+
+  Serial.println(error);
+
+  updateStatusClients(STATUS_UPDATE_ERROR);
 
 }

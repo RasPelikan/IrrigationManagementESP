@@ -5,6 +5,10 @@
     "port": 10,
     "mac": "1C7F2C63A358"
   },
+  "http": {
+    "username": "im",
+    "password": "Secure_123"
+  },
   "pumps": {
     "well": {
       "cycle": {
@@ -34,6 +38,70 @@
         }
       }
     }
-  }
+  },
+  "valves": [
+    {
+     "id": "local1",
+     "gpio": 1
+    },
+    {
+     "id": "remote1",
+     "remote": "http://10.0.0.47/valve/1"
+    }
+  ],
+  "areas": {
+    "road": {
+     "reset": true,
+     "sequence": [
+      {
+       "duration": 2,
+       "valves": ["local1"]
+      },
+      {
+       "duration": 2,
+       "valves": ["remote1"]
+      }
+     ]
+    },
+    "lawn": {
+     "reset": false,
+     "sequence": [
+       {
+         "duration": 6,
+         "valves": ["local1"]
+       },
+       {
+         "duration": 6,
+         "valves": ["local1", "remote1"]
+       },
+       {
+         "duration": 6,
+         "valves": ["remote1"]
+       }
+     ]
+    }
+  },
+  "cycles": [
+    {
+     "start": "0530",
+     "end": "0540",
+     "area": "road"
+    },
+    {
+     "start": "2200",
+     "end": "2210",
+     "area": "road"
+    },
+    {
+     "start": "2210",
+     "end": "2300",
+     "area": "lawn"
+    },
+    {
+     "start": "0500",
+     "end": "0530",
+     "area": "lawn"
+    }
+  ]
 }
 

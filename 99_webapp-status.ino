@@ -29,10 +29,13 @@ void updateStatusClients(uint8 what) {
     }
 
     JsonDocument doc;
-    if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_RSSI)) {
+    if (what & STATUS_UPDATE_ERROR) {
+      doc["error"] = error;
+    }
+    if (what & STATUS_UPDATE_RSSI) {
       doc["rssi"] = WiFi.RSSI();
     }
-    if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_TIME)) {
+    if (what & STATUS_UPDATE_TIME) {
       if (now != 0) {  // wait for first NTP update
         time(&now);
         char isoTimestamp[sizeof "2011-10-08T07:07:09.000Z"];
@@ -40,21 +43,21 @@ void updateStatusClients(uint8 what) {
         doc["currentDate"] = isoTimestamp;
       }
     }
-    if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_WATERLEVEL)) {
+    if (what & STATUS_UPDATE_WATERLEVEL) {
       addWaterLevelStatus(doc);
     }
-    if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_WATERPRESSURE)) {
+    if (what & STATUS_UPDATE_WATERPRESSURE) {
       addWaterPressureStatus(doc);
     }
-    if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_WELLPUMP)) {
+    if (what & STATUS_UPDATE_WELLPUMP) {
       addWellPumpStatus(doc);
     }
-    if ((what == STATUS_UPDATE_ALL) || (what == STATUS_UPDATE_IRRIGATIONPUMP)) {
+    if (what & STATUS_UPDATE_IRRIGATIONPUMP) {
       addIrrigationPumpStatus(doc);
     }
     char initialStatusEvent[300];
     serializeJson(doc, initialStatusEvent);
-    statusEvents.send(initialStatusEvent, what == 0 ? "INIT" : "UPDATE", millis(), 1000);
+    statusEvents.send(initialStatusEvent, what == STATUS_UPDATE_ALL ? "INIT" : "UPDATE", millis(), 1000);
 
 }
 

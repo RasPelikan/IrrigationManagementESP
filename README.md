@@ -2,11 +2,15 @@
 
 This is an irrigation management system based on the ESP8266 platform.
 
-It controls a low rate well pump which pumps water into containers during the day.
-Additionally, it controls a irrigation pump (placed in the container) based on
-the pipes current water pressure and the container's current level of water.
+Features:
+1. It controls a low rate well pump which pumps water into containers during the day.
+1. It controls an irrigation pump (placed in the container) based on the pipes current water pressure and the container's current level of water.
+1. It irrigates by switching valves according to configured irrigation cycles.
+1. Irrigation cycles may be fixed (irrigate the same in every cycle) or rolling (irrigate configured areas beginning were stopped last time).
+1. Valves may also be switch remote by calling a defined URL. So the main devices does not necessarily be connected to all valves.
+1. Provide a webapp to control the device.
 
-This setup is needed if your well feels not well any more ;-) - means there is
+This two pumps setup is needed if your well feels not well any more ;-) - means there is
 water but not enough to place the high rated irrigation pump directly into the
 well.
 
@@ -27,16 +31,26 @@ is used connected to the ADC pin.
 A file `settings.h` contains all `#define` commands for base properties (e.g. WIFI, etc.).
 Add this file by copying this template and adapt the values according to your environment.
 
-Additionally, one needs to add [ESPAsyncWebServer](https://github.com/me-no-dev/ESPAsyncWebServer/archive/master.zip)
-and [ESPAsyncTCP](https://github.com/me-no-dev/ESPAsyncTCP/archive/master.zip) to
-the sketch (Menü `Sketch` > 'Include Library` > `Add .ZIP Library...`).
+Additionally, one needs to add `ESP Async WebServer` (Version 3.7.6)
+and `ESP Async TCP` (Version 2.0.0) libraries.
+
+The webapp included has to be built like this:
+
+```shell
+cd webapp
+npm install
+npm run build
+cd ..
+```
 
 ## Configuration file
 
 There is a template for the configuration file: `config-template.json`. To upload your
 individual configuration file, make a new directory `data` in this project (it's already
 excluded but `.gitignore`) and place a copy of the template named als `config.json` into
-the new directory. Now you can use
+the new directory. Also the webapp is placed there for transfering to the device.
+
+Now you can use
 [Arduino IDE ESP8266 LittleFS Filessystem Uploader Plugin](https://randomnerdtutorials.com/arduino-ide-2-install-esp8266-littlefs/)
 to send the file to your board.
 

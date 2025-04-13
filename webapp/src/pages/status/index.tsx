@@ -3,14 +3,15 @@ import { AppContext } from "../../index";
 import "./style.css";
 
 interface ImStatus {
-  rssi: number;
-  waterLevel: number;
-  waterPressure: number;
+  error?: string;
+  rssi?: number;
+  waterLevel?: number;
+  waterPressure?: number;
   irrigationPump: 'active' | 'inactive' | 'out-of-water';
   irrigationPumpMode: 'off' | 'auto';
   wellPump: 'active-cycle' | 'inactive-cycle' | 'inactive';
   wellPumpMode: 'on' | 'off' | 'auto';
-  wellPumpCycle: number | undefined;
+  wellPumpCycle?: number;
 }
 
 const Status = ({}) => {
@@ -69,13 +70,12 @@ const Status = ({}) => {
   useEffect(() => {
     const updateEventListener = (event: MessageEvent) => {
       const data = JSON.parse(event.data);
+      setStatus({
+        ...status,
+        ...data
+      });
       if (data['currentDate']) {
         setCurrentDate(new Date(data['currentDate']));
-      } else {
-        setStatus({
-          ...status,
-          ...data,
-        });
       }
     };
     eventSource.current.addEventListener('UPDATE', updateEventListener);
@@ -107,13 +107,47 @@ const Status = ({}) => {
                 <tr>
                   <td>System:</td>
                   <td>
-                    <div>
+                    <table>
+                    <tbody>
+                      <tr>
+                        <td>
+                          <div>
+                            {
+                              currentDate === undefined
+                                  ? 'Waiting for NTP response'
+                                  : currentDate.toLocaleString()
+                            }
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <div>
+                            RSSI:
+                            {
+                              status.rssi === undefined
+                                  ? 'No RSSI given'
+                                  : status.rssi
+                            }
+                          </div>
+                        </td>
+                      </tr>
                       {
-                        currentDate === undefined
-                            ? 'Waiting for NTP response'
-                            : currentDate.toLocaleString()
+                        status.error == undefined
+                            ? undefined
+                            : <tr>
+                                <td style="color: red; font-weight: bold;">
+                                  <div>
+                                    Error:
+                                    {
+                                      status.error
+                                    }
+                                  </div>
+                                </td>
+                              </tr>
                       }
-                    </div>
+                    </tbody>
+                    </table>
                   </td>
                 </tr>
                 <tr>

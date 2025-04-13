@@ -123,7 +123,7 @@ void switchOffWellPumpIfContainerIsFull() {
       } else if (wellPumpMode == MODE_WELLPUMP_AUTO) {
 
         Serial.println(F("Disable well pump because container is full"));
-
+        
       }
 
     }
