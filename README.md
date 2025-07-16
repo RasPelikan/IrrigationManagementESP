@@ -28,13 +28,13 @@ is used connected to the ADC pin.
 
 ## Build
 
-A file `settings.h` contains all `#define` commands for base properties (e.g. WIFI, etc.).
-Add this file by copying this template and adapt the values according to your environment.
+This project is meant to be opened in ArduinoIDE. One needs to add libraries:
 
-Additionally, one needs to add `ESP Async WebServer` (Version 3.7.6)
-and `ESP Async TCP` (Version 2.0.0) libraries.
+1. `ESP Async WebServer` (Version 3.7.9)
+1. `ESP Async TCP` (Version 2.0.0)
+1. `ElegantOTA` (Version 3.1.7, turned to [async mode](https://docs.elegantota.pro/getting-started/async-mode))
 
-The webapp included has to be built like this:
+The webapp included has to be built like this manually:
 
 ```shell
 cd webapp
@@ -48,30 +48,37 @@ cd ..
 There is a template for the configuration file: `config-template.json`. To upload your
 individual configuration file, make a new directory `data` in this project (it's already
 excluded but `.gitignore`) and place a copy of the template named als `config.json` into
-the new directory. Also the webapp is placed there for transfering to the device.
+the new directory. Also the webapp (needs to be built before) is placed there for transfering to the device.
 
 Now you can use
 [Arduino IDE ESP8266 LittleFS Filessystem Uploader Plugin](https://randomnerdtutorials.com/arduino-ide-2-install-esp8266-littlefs/)
 to send the file to your board.
 
-## settings.h
+Hint: There are [connectivity issues](https://olimex.wordpress.com/2021/12/10/avoid-wifi-channel-12-13-14-when-working-with-esp-devices/) for port greater than 11.
+
+## config-template.json
 
 ### Wifi
 
-```c
-#define WIFI_SSID "XXXXXXXXX"
-#define WIFI_PASSWORD "YYYYYYYYY"
-```
+```json
+{
+  "wifi": {
+    "ssid": "YourWifiSSID",
+    "password": "YourWifiPassword",
+    "port": 11
+  },
+  "http": {
+    "username": "im",
+    "password": "Secure_123"
+  },
+  ...
+}```
 
-If your using a mesh wifi you have to define the port and the MAC address of the access
-point you want to connect to. Both can be determined by using a "Wifi Monitor" app.
+`wifi.ssid` and `wifi.password` is mandatory. `wifi.port` is optional and can be used to choose
+a specific access point by it's port.
 
-```c
-#define WIFI_PORT 11
-#define WIFI_MAC { 0x1C, 0x7F, 0x2C, 0x63, 0xA3, 0x58 }
-```
-
-Hint: There are [connectivity issues](https://olimex.wordpress.com/2021/12/10/avoid-wifi-channel-12-13-14-when-working-with-esp-devices/) for port greater than 11.
+If `http` section is given, then the web application will be protected using the credentials given
+in `http.username` and `http.password`.
 
 ### Well pump interval
 

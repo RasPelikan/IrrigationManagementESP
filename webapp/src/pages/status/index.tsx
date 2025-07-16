@@ -5,6 +5,8 @@ import "./style.css";
 interface ImStatus {
   error?: string;
   rssi?: number;
+  heapAfterSetup?: number;
+  heap?: number;
   waterLevel?: number;
   waterPressure?: number;
   irrigationPump: 'active' | 'inactive' | 'out-of-water';
@@ -98,6 +100,9 @@ const Status = ({}) => {
     }).catch(error => console.log(error));
   };
 
+  const freeHeap = status.heapAfterSetup === undefined || status.heap == undefined
+      ? undefined
+      : status.heapAfterSetup - status.heap;
   return (
       <div className="status-main">
         {
@@ -105,7 +110,9 @@ const Status = ({}) => {
               ? <table className="status-table">
                 <tbody>
                 <tr>
-                  <td>System:</td>
+                  <td style={ {  verticalAlign: 'top' } }>
+                    System:
+                  </td>
                   <td>
                     <table>
                     <tbody>
@@ -123,11 +130,31 @@ const Status = ({}) => {
                       <tr>
                         <td>
                           <div>
-                            RSSI:
+                            RSSI:&nbsp;
                             {
                               status.rssi === undefined
                                   ? 'No RSSI given'
                                   : status.rssi
+                            }
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <div>
+                            Mem:&nbsp;
+                            {
+                              freeHeap === undefined
+                                  ? 'No heap information'
+                                  : <span>{
+                                        (freeHeap * 100 / status.heapAfterSetup).toFixed(2)
+                                      }% used<br />
+                                      ({
+                                        freeHeap
+                                      } bytes of {
+                                        status.heapAfterSetup
+                                      })
+                                    </span>
                             }
                           </div>
                         </td>

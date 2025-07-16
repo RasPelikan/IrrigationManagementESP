@@ -72,7 +72,7 @@ void checkForActiveCycles() {
   }
 
   /* calculate active valves */
-
+  
   // assume all valves to be inactive
   bool *valveStatus = new bool[numberOfValves];
   for (uint8_t i = 0; i < numberOfValves; ++i) {
@@ -114,6 +114,7 @@ void checkForActiveCycles() {
     }
 
     // for active cycles check which valves have to be activated (if water is available)
+
     if (irrigationPumpEnabled && activeCycles[cycleIndex]) {
       checkForValvesOfCycle(&cycles[cycleIndex], valveStatus);
     }
@@ -135,6 +136,9 @@ void checkForActiveCycles() {
       }
     }
   }
+  
+  delete[] valveStatus;
+  delete[] calculatedCycles;
 
 }
 
@@ -145,5 +149,22 @@ void setupCycles() {
   for (uint8_t i = 0; i < numberOfCycles; ++i) {
     activeCycles[i] = false;
   }
+
+}
+
+void setupValves() {
+
+  portExpander.pinMode(GPIO_VALVE_1, OUTPUT);
+  portExpander.digitalWrite(GPIO_VALVE_1, RELAIS_OFF);
+  portExpander.pinMode(GPIO_VALVE_2, OUTPUT);
+  portExpander.digitalWrite(GPIO_VALVE_2, RELAIS_OFF);
+  portExpander.pinMode(GPIO_VALVE_3, OUTPUT);
+  portExpander.digitalWrite(GPIO_VALVE_3, RELAIS_OFF);
+  portExpander.pinMode(GPIO_VALVE_4, OUTPUT);
+  portExpander.digitalWrite(GPIO_VALVE_4, RELAIS_OFF);
+  portExpander.pinMode(GPIO_VALVE_5, OUTPUT);
+  portExpander.digitalWrite(GPIO_VALVE_5, RELAIS_OFF);
+  portExpander.pinMode(GPIO_VALVE_6, OUTPUT);
+  portExpander.digitalWrite(GPIO_VALVE_6, RELAIS_OFF);
 
 }

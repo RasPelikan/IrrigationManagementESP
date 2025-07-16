@@ -80,8 +80,8 @@ void blinkIrrigationPumpLed() {
 
 void addIrrigationPumpStatus(JsonDocument &doc) {
 
-  doc["irrigationPump"] = irrigationPumpActive ? "active" : !irrigationPumpEnabled ? "out-of-water" : "inactive";
-  doc["irrigationPumpMode"] = irrigationPumpMode == MODE_IRRIGATIONPUMP_OFF ? "off" : "auto";
+  doc[F("irrigationPump")] = irrigationPumpActive ? F("active") : !irrigationPumpEnabled ? F("out-of-water") : F("inactive");
+  doc[F("irrigationPumpMode")] = irrigationPumpMode == MODE_IRRIGATIONPUMP_OFF ? F("off") : F("auto");
 
 }
 

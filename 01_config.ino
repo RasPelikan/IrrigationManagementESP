@@ -1,5 +1,10 @@
+#define CREDENTIALS_PATH "/credentials.json"
+#define CONFIG_PATH "/config.json"
+
 char *configError = NULL;
 
+IrrigationConfig irrigationConfig;
+WifiConfig wifiConfig;
 Area *areas;
 uint8_t numberOfAreas;
 Cycle *cycles;
@@ -30,13 +35,12 @@ bool isValidTime(uint16_t time) {
 }
 
 void listDir(const char *dirname, uint8_t levels) {
-  Serial.printf("Listing directory: %s\r\n", dirname);
+  Serial.printf_P(PSTR("Listing directory: %s\r\n"), dirname);
 
   Dir root = LittleFS.openDir(dirname);
   while (root.next()) {
     if (root.isDirectory()) {
-      Serial.print("  DIR : ");
-      Serial.println(root.fileName());
+      Serial.printf_P(PSTR("  DIR: %s\n"), root.fileName().c_str());
       if (levels) {
         char path[200];
         strcpy(path, dirname);
@@ -47,31 +51,222 @@ void listDir(const char *dirname, uint8_t levels) {
         listDir(path, levels - 1);
       }
     } else {
-      Serial.print("  FILE: ");
-      Serial.println(root.fileName());
-      Serial.print("\tSIZE: ");
-      Serial.println(root.fileSize());
+      if (root.fileName().startsWith("tmp_")) {
+        Serial.printf_P(PSTR("  CLEARING: %s\n\tSIZE: %u\n"), root.fileName().c_str(), root.fileSize());
+        char path[200];
+        strcpy(path, dirname);
+        if (path[strlen(dirname) - 1] != '/') {
+          strcpy(path + strlen(dirname), "/");
+        }
+        strcpy(path + strlen(path), root.fileName().c_str());
+        LittleFS.remove(path);
+      } else {
+        Serial.printf_P(PSTR("  FILE: %s\n\tSIZE: %u\n"), root.fileName().c_str(), root.fileSize());
+      }
     }
   }
 }
 
-bool readConfiguration() {
-
-  listDir("/", 3);
-
-  File file = LittleFS.open(F(CONFIG_PATH), "r");
-  if (!file) {
-
-    setError(PSTR("Failed to open `%s` for reading\n"), CONFIG_PATH);
+bool readCredentialsFile(File credentialsFile) {
+  
+  JsonDocument doc;
+  DeserializationError jsonError = deserializeJson(doc, credentialsFile);
+  if (jsonError) {
+    Serial.printf_P(PSTR("JSON deserialization error: %s\n"), jsonError.c_str());
     return false;
   }
+
+  //serializeJsonPretty(doc, Serial);
+  //Serial.println();
+
+  // WIFI
+
+  JsonObject docWifiConfig = doc["wifi"];
+  if (docWifiConfig.isNull()) {
+    setError(PSTR("Credentials JSON has no or empty section 'wifi'!"));
+    Serial.println(error);
+    return false;
+  }
+  const char *docSsid = docWifiConfig["ssid"];
+  if ((docSsid == NULL) || (strlen(docSsid) == 0)) {
+    setError(PSTR("Credentials JSON has no or empty value 'wifi.ssid'!"));
+    Serial.println(error);
+    return false;
+  }
+  wifiConfig.ssid = copyString(docSsid);
+  const char *docWifiPwd = docWifiConfig["password"];
+  if ((docWifiPwd == NULL) || (strlen(docWifiPwd) == 0)) {
+    setError(PSTR("Credentials JSON has no or empty value 'wifi.password'!"));
+    Serial.println(error);
+    return false;
+  }
+  wifiConfig.password = copyString(docWifiPwd);
+
+  // HTTP
+
+  JsonObject docHttpConfig = doc["http"];
+  const char *docHttpUsername = docHttpConfig["username"];
+  if ((docHttpUsername == NULL) || (strlen(docHttpUsername) == 0)) {
+    wifiConfig.httpUsername = NULL;
+  } else {
+    wifiConfig.httpUsername = copyString(docHttpUsername);
+  }
+  const char *docHttpPassword = docHttpConfig["password"];
+  if ((docHttpPassword == NULL) || (strlen(docHttpPassword) == 0)) {
+    wifiConfig.httpPassword = NULL;
+  } else {
+    wifiConfig.httpPassword = copyString(docHttpPassword);
+  }
+
+  return true;
+
+}
+
+
+
+bool readConfigFile(File configFile) {
 
   JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, file);
-  if (error) {
-    setError(PSTR("JSON deserialization error: %s\n"), error.c_str());
+  DeserializationError jsonError = deserializeJson(doc, configFile);
+  if (jsonError) {
+    Serial.printf_P(PSTR("JSON deserialization error: %s\n"), jsonError.c_str());
     return false;
   }
+
+  //serializeJsonPretty(doc, Serial);
+  //Serial.println();
+
+  // WIFI
+
+  JsonObject docWifiConfig = doc["wifi"];
+  if (!docWifiConfig.isNull()) {
+    wifiConfig.port = docWifiConfig["port"];
+  }
+  wifiConfig.mac = NULL;
+
+  // PUMPS
+
+  JsonObject docPumpsConfig = doc["pumps"];
+  if (docPumpsConfig.isNull()) {
+    setError(PSTR("Config JSON has no or empty section 'pumps'!"));
+    return false;
+  }
+  JsonObject docWellPumpConfig = docPumpsConfig["well"];
+  if (docWellPumpConfig.isNull()) {
+    setError(PSTR("Config JSON has no or empty section 'pumps.well'!"));
+    return false;
+  }
+  JsonObject docWellPumpCycleConfig = docWellPumpConfig["cycle"];
+  if (docWellPumpConfig.isNull()) {
+    setError(PSTR("Config JSON has no or empty section 'pumps.well.cycle'!"));
+    return false;
+  }
+  irrigationConfig.wellPumpCycleOn = docWellPumpCycleConfig["on"];
+  if (irrigationConfig.wellPumpCycleOn == 0) {
+    setError(PSTR("Config JSON has no or empty value 'pumps.well.cycle.on'!"));
+    return false;
+  }
+  irrigationConfig.wellPumpCycleOff = docWellPumpCycleConfig["off"];
+  if (irrigationConfig.wellPumpCycleOff == 0) {
+    setError(PSTR("Config JSON has no or empty value 'pumps.well.cycle.off'!"));
+    return false;
+  }
+  JsonObject docIrrigationPumpConfig = docPumpsConfig["irrigation"];
+  if (docIrrigationPumpConfig.isNull()) {
+    setError(PSTR("Config JSON has no or empty section 'pumps.irrigation'!"));
+    return false;
+  }
+  irrigationConfig.irrigationPumpHysteresis = docIrrigationPumpConfig["hysteresis"];
+  if (irrigationConfig.irrigationPumpHysteresis == 0) {
+    setError(PSTR("Config JSON has no or empty value 'pumps.irrigation.hysteresis'!"));
+    return false;
+  }
+
+  // WATER
+
+  JsonObject docWaterConfig = doc["water"];
+  if (docPumpsConfig.isNull()) {
+    setError(PSTR("Config JSON has no or empty section 'water'!"));
+    return false;
+  }
+  JsonObject docWaterLevelConfig = docWaterConfig["level"];
+  if (docWaterLevelConfig.isNull()) {
+    setError(PSTR("Config JSON has no or empty section 'water.level'!"));
+    return false;
+  }
+  irrigationConfig.waterLevelHysteresis = docWaterLevelConfig["hysteresis"];
+  if (irrigationConfig.waterLevelHysteresis == 0) {
+    setError(PSTR("Config JSON has no or empty value 'water.level.hysteresis'!"));
+    return false;
+  }
+  JsonObject docPressureConfig = docWaterConfig["pressure"];
+  if (docPressureConfig.isNull()) {
+    setError(PSTR("Config JSON has no or empty section 'water.pressure'!"));
+    return false;
+  }
+  float lowInBar = docPressureConfig["low"];
+  if (lowInBar == 0) {
+    setError(PSTR("Config JSON has no or empty value 'water.pressure.low'!"));
+    return false;
+  }
+  float highInBar = docPressureConfig["high"];
+  if (highInBar == 0) {
+    setError(PSTR("Config JSON has no or empty value 'water.pressure.high'!"));
+    return false;
+  }
+  JsonObject docPressureReferenceConfig = docPressureConfig["reference"];
+  if (docPressureReferenceConfig.isNull()) {
+    setError(PSTR("Config JSON has no or empty section 'water.pressure.reference'!"));
+    return false;
+  }
+  JsonObject docPressureReferenceLowConfig = docPressureReferenceConfig["low"];
+  if (docPressureReferenceLowConfig.isNull()) {
+    setError(PSTR("Config JSON has no or empty section 'water.pressure.reference.low'!"));
+    return false;
+  }
+  float lowReferenceBar = docPressureReferenceLowConfig["bar"];
+  if (lowReferenceBar == 0) {
+    setError(PSTR("Config JSON has no or empty value 'water.pressure.reference.low.bar'!"));
+    return false;
+  }
+  uint16_t lowReferenceAdc = docPressureReferenceLowConfig["value"];
+  if (lowReferenceAdc == 0) {
+    setError(PSTR("Config JSON has no or empty value 'water.pressure.reference.low.value'!"));
+    return false;
+  }
+  JsonObject docPressureReferenceHighConfig = docPressureReferenceConfig["high"];
+  if (docPressureReferenceLowConfig.isNull()) {
+    setError(PSTR("Config JSON has no or empty section 'water.pressure.reference.high'!"));
+    return false;
+  }
+  float highReferenceBar = docPressureReferenceHighConfig["bar"];
+  if (highReferenceBar == 0) {
+    setError(PSTR("Config JSON has no or empty value 'water.pressure.reference.high.bar'!"));
+    return false;
+  }
+  uint16_t highReferenceAdc = docPressureReferenceHighConfig["value"];
+  if (highReferenceAdc == 0) {
+    setError(PSTR("Config JSON has no or empty value 'water.pressure.reference.high.value'!"));
+    return false;
+  }
+  if (lowReferenceBar >= highReferenceBar) {
+    setError(PSTR("Config JSON value 'water.pressure.reference.low.bar' is higher or equal 'water.pressure.reference.high.bar'!"));
+    return false;
+  }
+  if (lowReferenceAdc >= highReferenceAdc) {
+    setError(PSTR("Config JSON value 'water.pressure.reference.low.value' is higher or equal 'water.pressure.reference.high.value'!"));
+    return false;
+  }
+  irrigationConfig.pressureAdcGradient = (highReferenceAdc - lowReferenceAdc) / (highReferenceBar - lowReferenceBar);
+  if (lowReferenceBar == 0) {
+    irrigationConfig.pressureAdcOffset = lowReferenceAdc;
+  } else {
+    irrigationConfig.pressureAdcOffset = lowReferenceAdc - (lowReferenceBar * irrigationConfig.pressureAdcGradient);
+  }
+  irrigationConfig.waterPressureLow = irrigationConfig.pressureAdcOffset + (lowInBar * irrigationConfig.pressureAdcGradient);
+  irrigationConfig.waterPressureHigh = irrigationConfig.pressureAdcOffset + (highInBar * irrigationConfig.pressureAdcGradient);
+
+  // VALVES
 
   JsonArray docValves = doc["valves"];
   numberOfValves = docValves.size();
@@ -109,6 +304,8 @@ bool readConfiguration() {
       valve.url = NULL;
     }
   }
+
+  // AREAS
 
   JsonObject docAreas = doc["areas"];
   numberOfAreas = docAreas.size();
@@ -175,6 +372,8 @@ bool readConfiguration() {
     ++i;
   }
 
+  // CYCLES
+
   JsonArray docCycles = doc["cycles"];
   numberOfCycles = docCycles.size();
   if (docCycles.isNull() || (numberOfCycles == 0)) {
@@ -221,7 +420,39 @@ bool readConfiguration() {
     cycle.end = time;
   }
 
-  Serial.println("Successfully read configuration");
+  return true;
+
+}
+
+bool readConfiguration() {
+
+  listDir("/", 3);
+
+  File credentialsFile = LittleFS.open(F(CREDENTIALS_PATH), "r");
+  if (!credentialsFile || !credentialsFile.available() || !credentialsFile.isFile()) {
+    Serial.printf_P(PSTR("Failed to open `%s` for reading\n"), CREDENTIALS_PATH);
+    return false;
+  }
+
+  bool credentialsFileSucessfullyRead = readCredentialsFile(credentialsFile);
+  credentialsFile.close();
+  if (!credentialsFileSucessfullyRead) {
+    return false;
+  }
+  Serial.printf_P(PSTR("Successfully read `%s`\n"), CREDENTIALS_PATH);
+
+  File configFile = LittleFS.open(F(CONFIG_PATH), "r");
+  if (!configFile || !configFile.available() || !configFile.isFile()) {
+    Serial.printf_P(PSTR("Failed to open `%s` for reading\n"), CONFIG_PATH);
+    return false;
+  }
+
+  bool configFileSucessfullyRead = readConfigFile(configFile);
+  configFile.close();
+  if (!configFileSucessfullyRead) {
+    return false;
+  }
+  Serial.printf_P(PSTR("Successfully read `%s`\n"), CONFIG_PATH);
 
   return true;
 

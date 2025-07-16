@@ -11,7 +11,7 @@ export default defineConfig({
 	server: {
 		proxy: {
 			'/api': {
-				target: 'http://10.0.0.35',
+				target: 'https://im.pelikan-it.com:443',
 				changeOrigin: true,
 				secure: false,
 			},

@@ -1,26 +1,25 @@
-#include <AsyncPrinter.h>
-#include <DebugPrintMacros.h>
-#include <ESPAsyncTCP.h>
-#include <ESPAsyncTCPbuffer.h>
+
 #include <SyncClient.h>
 #include <async_config.h>
 #include <tcp_axtls.h>
 
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
-#include <ESPAsyncTCP.h>
+#if defined(ESP8266)
+  #include <ESP8266WiFi.h>
+  #include <ESP8266HTTPClient.h>
+  #include <ESPAsyncTCP.h>
+#elif defined(ESP32)
+  #include <WiFi.h>
+#endif
+#include <ESPAsyncTCPbuffer.h>
 #include <ESPAsyncWebServer.h>
 #include <WiFiClient.h>
 #include <Adafruit_MCP23X17.h>
 #include <time.h>
 #include "types.h"
-#include "settings.h"
 #include "WString.h"  // https://github.com/esp8266/Arduino/blob/60fe7b4ca8cdca25366af8a7c0a7b70d32c797f8/doc/PROGMEM.rst
 #include "LittleFS.h"
 #include <ArduinoJson.h>
-
-AsyncWebServer httpRestServer(80);
 
 #define PORT_EXPANDER_ADDR 0 // Adresse 0x20 / 0
 Adafruit_MCP23X17 portExpander;
@@ -59,9 +58,13 @@ Adafruit_MCP23X17 portExpander;
 #define STATUS_UPDATE_WATERLEVEL 32
 #define STATUS_UPDATE_ERROR 64
 
+#define MAX_ERROR_LENGTH 300
+
 WiFiEventHandler wifiConnectHandler;
 WiFiEventHandler wifiDisconnectHandler;
 char *error = NULL;
+uint32_t heapAfterSetup = 0;
+bool wrongConfig = true;
 
 void setup() {
 
@@ -81,7 +84,10 @@ void setup() {
   }
 
   // load parameters
-  readConfiguration();
+  if (!readConfiguration()) {
+    return;
+  }
+  wrongConfig = false;
 
   // Initialize NTP for current time and Wifi
   setupNtp();
@@ -96,17 +102,27 @@ void setup() {
   // Initialize cycle processing
   setupCycles();
 
+  heapAfterSetup = ESP.getFreeHeap();
+
 }
 
 // application status
 unsigned long previousTime = 0;
-uint8 interval = 0;
-uint8 wifiStatus = WIFI_STATUS_DISCONNECTED;
-uint8 lastMinute = 0;
+uint8_t interval = 0;
+uint8_t wifiStatus = WIFI_STATUS_DISCONNECTED;
+uint8_t lastMinute = 0;
+uint8_t lastSecond = 0;
 time_t now = 0;                     // this are the seconds since Epoch (1970) - UTC
 tm tm_now;                          // the structure tm holds time information in a more convenient way
 
 void loop() {
+
+  // process data during OTA
+  doOTAifActive();
+
+  if (wrongConfig) {
+    return;
+  }
 
   // ignore loop execution more often than LED blink interval (1/8 second)
   unsigned long currentMillis = millis();
@@ -136,6 +152,8 @@ void loop() {
     if (now != 0) {  // wait for first NTP update
       time(&now);    // this function calls the NTP server only every hour
       localtime_r(&now, &tm_now);
+    } else if (wifiStatus == WIFI_STATUS_DISCONNECTED) { // no Wifi connected on setup
+      activateWifi();
     }
 
     if (tm_now.tm_min != lastMinute) { // every minute
@@ -153,6 +171,13 @@ void loop() {
         activateWifi();
       }
 
+    }
+
+    // every 30 seconds send update to clients to keep SSE connection alive
+    if ((tm_now.tm_sec != lastSecond)
+        && ((tm_now.tm_sec == 15) || (tm_now.tm_sec == 45))) {
+      lastSecond = tm_now.tm_sec;
+      updateStatusClients(STATUS_UPDATE_ERROR);
     }
 
   }
@@ -189,166 +214,6 @@ void blinkWifiLed() {
   } else if (wifiStatus == WIFI_STATUS_NTP_ACTIVE) {
     portExpander.digitalWrite(GPIO_WIFI_LED, HIGH);
   }
-
-}
-
-void setupWifi() {
-
-  // track los of Wifi connection
-  wifiConnectHandler = WiFi.onStationModeGotIP(onWifiConnect);
-  wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWifiDisconnect);
-
-  portExpander.pinMode(GPIO_WIFI_LED, OUTPUT);
-
-  // turn on Wifi
-  activateWifi();
-
-}
-
-void activateWifi() {
-
-  Serial.print(F("Connecting to "));
-  Serial.println(WIFI_SSID);
-
-  wifiStatus = WIFI_STATUS_CONNECTING;
-
-  WiFi.persistent(false);
-  WiFi.setAutoReconnect(false); // reconnect is done manually every minute
-  WiFi.mode(WIFI_STA);
-  #ifdef WIFI_PORT
-    unsigned char wifiMac[18] = WIFI_MAC;
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, WIFI_PORT, wifiMac);
-  #else
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  #endif
-
-}
-
-void onWifiConnect(const WiFiEventStationModeGotIP& event) {
-
-  wifiStatus = WIFI_STATUS_WAITING_FOR_NTP;
-  wifiConnected();
-
-}
-
-void onWifiDisconnect(const WiFiEventStationModeDisconnected& event) {
-
-  wifiStatus = WIFI_STATUS_DISCONNECTED;
-  wifiDisconnected();
-
-}
-
-void ntpTimeIsSet(bool from_sntp /* <= this parameter is optional */) {
-
-  wifiStatus = WIFI_STATUS_NTP_ACTIVE;
-  if (now == 0) {   // first NTP sync
-    time(&now);
-    localtime_r(&now, &tm_now);
-    lastMinute = tm_now.tm_min;
-  } else {
-    time(&now);
-    localtime_r(&now, &tm_now);
-  }
-
-  Serial.print(F("NTP update: "));
-  printTime(now);
-
-}
-
-// https://www.weigu.lu/microcontroller/tips_tricks/esp_NTP_tips_tricks/index.html
-void setupNtp() {
-
-  settimeofday_cb(ntpTimeIsSet);
-  configTime(MY_TZ, MY_NTP_SERVER);
-
-}
-
-void wifiConnected() {
-
-  Serial.print(F("Connected to WiFi: "));
-  Serial.println(WiFi.localIP().toString());
-
-  // Setup REST endpoints
-  httpRestServer.on("/rssi", HTTP_GET, handleRSSI);
-  httpRestServer.on("/config", HTTP_GET, handleGetConfig);
-  setupWellPumpEndpoints();
-  setupIrrigationPumpEndpoints();
-  httpRestServer.onNotFound(handleNotFound);
-  httpRestServer
-      .serveStatic("/", LittleFS, "/www/")
-      .setDefaultFile("index.html")
-      .setCacheControl("no-cache, no-store, max-age=0")
-      .setAuthentication(WWW_USERNAME, WWW_PASSWORD);
-  setWebAppStatusEndpoints();
-  httpRestServer.begin();
-
-}
-
-void handleNotFound(AsyncWebServerRequest *request) {
-
-  Serial.println("Not found");
-  String message = F("File Not Found\n\n");
-  message += F("URI: ");
-  message += request->url();
-  message += F("\nMethod: ");
-  message += request->methodToString();
-  message += "\n";
-  request->send(404, F("text/plain"), message);
-
-}
-
-void handleRSSI(AsyncWebServerRequest *request) {
-
-  char rssi[16];
-  snprintf(rssi, sizeof rssi, "%i", WiFi.RSSI());
-  String message = F("RSSI: ");
-  message += rssi;
-  message += " dB";
-  request->send(200, F("text/plain"), message);
-
-}
-
-void handleGetConfig(AsyncWebServerRequest *request) {
-  
-  File file = LittleFS.open(F(CONFIG_PATH), "r");
-  if(!file){
-    Serial.println(F("Failed to open `config.json` for reading"));
-    return;
-  }
-
-  AsyncResponseStream *response = request->beginResponseStream("application/json");
-  while (file.available() > 0) {
-    String line = file.readString();
-    response->print(line);
-  }
-  request->send(response);
-
-  file.close();
-
-}
-
-void wifiDisconnected() {
-  
-  Serial.println(F("WiFi disconnected!"));
-
-  httpRestServer.end();
-
-}
-
-void setupValves() {
-
-  portExpander.pinMode(GPIO_VALVE_1, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_1, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_2, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_2, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_3, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_3, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_4, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_4, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_5, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_5, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_6, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_6, RELAIS_OFF);
 
 }
 

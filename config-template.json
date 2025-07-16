@@ -27,13 +27,13 @@
     "pressure": {
       "low": 3.0,
       "high": 5.5,
-      "values": {
-        "first": {
+      "reference": {
+        "low": {
           "bar": 3.0,
-          "value": 200
+          "value": 350
         },
-        "second": {
-          "bar": 7.0,
+        "high": {
+          "bar": 8.0,
           "value": 800
         }
       }

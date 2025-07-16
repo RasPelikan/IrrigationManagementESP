@@ -6,6 +6,7 @@ import { Status } from "./pages/status";
 import { NotFound } from "./pages/not-found";
 import { Header } from "./header";
 import { useMemo, useState } from "react";
+import { Config } from "./pages/config";
 
 interface AppContextValue {
 	pageTitle: string;
@@ -13,6 +14,18 @@ interface AppContextValue {
 }
 
 export const AppContext = createContext<AppContextValue>({} as AppContextValue);
+
+const Main = () => (
+		<>
+			<Header />
+			<main>
+				<Router>
+					<Status path="/" />
+					<Config path="/config" />
+					<NotFound default />
+				</Router>
+			</main>
+		</>);
 
 export const App = () => {
 	const [ pageTitle, setPageTitle ] = useState('Main');
@@ -23,13 +36,10 @@ export const App = () => {
 	return (
 			<AppContext.Provider value={ appContext }>
 				<LocationProvider>
-					<Header />
-					<main>
-						<Router>
-							<Route path="/" component={ Status } />
-							<Route default component={ NotFound } />
-						</Router>
-					</main>
+					<Router>
+						<Main path="/*" />
+						<Main default />
+					</Router>
 				</LocationProvider>
 			</AppContext.Provider>
 	);

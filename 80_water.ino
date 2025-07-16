@@ -29,7 +29,7 @@ void updateWaterLevel() {
   
   if (portExpander.digitalRead(GPIO_WATERLEVEL_EMPTY)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_EMPTY) {
-      waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
+      waterStatusHysteresis = irrigationConfig.waterLevelHysteresis;
       waterLevel = WATERLEVEL_EMPTY;
       irrigationPumpEnabled = false;
 
@@ -40,7 +40,7 @@ void updateWaterLevel() {
     }
   } else if (portExpander.digitalRead(GPIO_WATERLEVEL_1)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_1) {
-      waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
+      waterStatusHysteresis = irrigationConfig.waterLevelHysteresis;
       waterLevel = WATERLEVEL_1;
       irrigationPumpEnabled = true;
 
@@ -54,7 +54,7 @@ void updateWaterLevel() {
     /*
   } else if (portExpander.digitalRead(GPIO_WATERLEVEL_2)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_2) {
-      waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
+      waterStatusHysteresis = irrigationConfig.waterLevelHysteresis;
       waterLevel = WATERLEVEL_2;
       irrigationPumpEnabled = true;
 
@@ -67,7 +67,7 @@ void updateWaterLevel() {
     }
   } else if (portExpander.digitalRead(GPIO_WATERLEVEL_3)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_3) {
-      waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
+      waterStatusHysteresis = irrigationConfig.waterLevelHysteresis;
       waterLevel = WATERLEVEL_3;
       irrigationPumpEnabled = true;
 
@@ -81,7 +81,7 @@ void updateWaterLevel() {
     */
   } else if (portExpander.digitalRead(GPIO_WATERLEVEL_FULL)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_4) {
-      waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
+      waterStatusHysteresis = irrigationConfig.waterLevelHysteresis;
       waterLevel = WATERLEVEL_4;
       irrigationPumpEnabled = true;
 
@@ -94,7 +94,7 @@ void updateWaterLevel() {
     }
   } else { // all waterlevel sensors are low, means container is full
     if (waterLevel != WATERLEVEL_FULL) {
-      waterStatusHysteresis = WATERLEVEL_HYSTERESIS;
+      waterStatusHysteresis = irrigationConfig.waterLevelHysteresis;
       waterLevel = WATERLEVEL_FULL;
       irrigationPumpEnabled = true;
 
@@ -115,7 +115,8 @@ void addWaterLevelStatus(JsonDocument &doc) {
 
 void addWaterPressureStatus(JsonDocument &doc) {
 
-  doc["waterPressure"] = waterPressure;
+  float pressure = (waterPressure - irrigationConfig.pressureAdcOffset) / irrigationConfig.pressureAdcGradient;
+  doc["waterPressure"] = pressure;
 
 }
 
@@ -131,12 +132,12 @@ void updateWaterPressure() {
 
 bool isWaterPressureLow() {
 
-  return waterPressure < WATERPRESSURE_LOW_END;
+  return waterPressure < irrigationConfig.waterPressureLow;
 
 }
 
 bool isWaterPressureHigh() {
 
-  return waterPressure > WATERPRESSURE_HIGH_END;
+  return waterPressure > irrigationConfig.waterPressureHigh;
 
 }

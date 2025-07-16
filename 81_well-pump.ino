@@ -8,9 +8,13 @@
 
 bool wellPumpActive = false;
 uint8 wellPumpMode = MODE_WELLPUMP_AUTO;
-uint8 wellPumpInterval = WELLPUMP_SLEEP;  // means wait for sleep interval on startup
+uint8 wellPumpInterval = 0;
 
 void setupWellPump() {
+
+  // means that the sleep interval is waited for at startup to ensure
+  // that the sleep interval is adhered to
+  wellPumpInterval = irrigationConfig.wellPumpCycleOff;
 
   portExpander.pinMode(GPIO_WELLPUMP_LED, OUTPUT);
 
@@ -76,12 +80,12 @@ void switchOnWellPump() {
 
     wellPumpActive = true;
     portExpander.digitalWrite(GPIO_WELLPUMP, RELAIS_ON);
-    wellPumpInterval = WELLPUMP_RUN;
+    wellPumpInterval = irrigationConfig.wellPumpCycleOn;
 
     updateStatusClients(STATUS_UPDATE_WELLPUMP);
 
     Serial.print(F("Switched on well pump for "));
-    Serial.print(WELLPUMP_RUN);
+    Serial.print(irrigationConfig.wellPumpCycleOn);
     Serial.println(F(" minutes"));
 
 }
@@ -91,7 +95,7 @@ void switchOffWellPump(bool setInterval) {
     wellPumpActive = false;
     portExpander.digitalWrite(GPIO_WELLPUMP, RELAIS_OFF);
     if (setInterval) {
-      wellPumpInterval = WELLPUMP_SLEEP;
+      wellPumpInterval = irrigationConfig.wellPumpCycleOff;
     } else {
       wellPumpInterval = 0;
     }
@@ -100,7 +104,7 @@ void switchOffWellPump(bool setInterval) {
 
     if (setInterval) {
       Serial.print(F("Switched off well pump for "));
-      Serial.print(WELLPUMP_SLEEP);
+      Serial.print(irrigationConfig.wellPumpCycleOff);
       Serial.println(F(" minutes"));
     } else {
       Serial.println(F("Switched off well pump"));
@@ -176,8 +180,8 @@ void handleWellPumpMode(AsyncWebServerRequest *request) {
 
 void addWellPumpStatus(JsonDocument &doc) {
   
-  doc["wellPump"] = wellPumpActive ? "active-cycle" : wellPumpInterval > 0 ? "inactive-cycle" : "inactive";
-  doc["wellPumpCycle"] = wellPumpInterval;
-  doc["wellPumpMode"] = wellPumpMode == 0 ? "auto" : wellPumpMode == 1 ? "on" : "off";
+  doc[F("wellPump")] = wellPumpActive ? F("active-cycle") : wellPumpInterval > 0 ? F("inactive-cycle") : F("inactive");
+  doc[F("wellPumpCycle")] = wellPumpInterval;
+  doc[F("wellPumpMode")] = wellPumpMode == 0 ? F("auto") : wellPumpMode == 1 ? F("on") : F("off");
 
 }

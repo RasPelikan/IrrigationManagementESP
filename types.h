@@ -1,3 +1,23 @@
+struct WifiConfig {
+  char *ssid;
+  char *password;
+  uint8_t port;
+  char *mac;
+  char *httpUsername;
+  char *httpPassword;
+};
+
+struct IrrigationConfig {
+  uint16_t irrigationPumpHysteresis; // seconds
+  uint16_t wellPumpCycleOn;   // minutes
+  uint16_t wellPumpCycleOff;  // minutes
+  uint16_t waterLevelHysteresis; // seconds
+  uint16_t waterPressureLow;  // ADC value
+  uint16_t waterPressureHigh; // ADC value
+  uint16_t pressureAdcOffset; // ADC value of zero pressure
+  float pressureAdcGradient;  // ADC value gradient for 1 bar
+};
+
 struct Valve {
   uint8_t gpio;
   char *url;
