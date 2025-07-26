@@ -8,6 +8,7 @@ header {
 }
 
 header > .title {
+    padding-left: 0.35rem;
     flex: 1;
     display: flex;
     flex-direction: row;

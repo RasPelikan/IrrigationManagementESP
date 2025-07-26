@@ -1,14 +1,110 @@
 AsyncEventSource statusEvents("/api/status-events");
 uint8_t numberOfStatusEventsClients = 0;
 
+const char indexFile[] PROGMEM = "/www/index.html";
+const char tmpIndexFile[] PROGMEM = "/www/tmp_index.html";
+const char assetsDir[] PROGMEM = "/www/assets/";
+
 void setWebAppStatusEndpoints() {
 
   statusEvents.onConnect(statusClientConnected);
   statusEvents.onDisconnect(statusClientDisconnected);
   httpRestServer.addHandler(&statusEvents);
   httpRestServer.on("/api/config", HTTP_GET, handleGetConfig);
-  httpRestServer.on("/api/config", HTTP_POST, handleSetConfig, NULL, handleConfigUpload);
+  httpRestServer.on("/api/webapp", HTTP_POST, handleWebappUploaded, handleWebappUpload);
+  httpRestServer.on("/api/reboot", HTTP_GET, handleDoReboot);
   
+}
+
+void handleDoReboot(AsyncWebServerRequest *request) {
+
+  AsyncWebServerResponse *response = request->beginResponse(200, "text/plain");
+  request->send(response);
+
+  LittleFS.gc();          // flush changes to "disk"
+  delay(1000);            // wait for the response to be sent to the client
+  ESP.restart();          // restart to reload changed configuration
+
+}
+
+void handleWebappUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data, size_t len, bool final) {
+
+  if (!index) {
+    Serial.printf_P(PSTR("Webapp upload started: %s\n"), filename.c_str());
+    char tmpFilename[100];
+    snprintf(tmpFilename, sizeof tmpFilename, filename.equals(F("index.html")) ? PSTR("/www/tmp_%s") : PSTR("/www/assets/tmp_%s"), filename.c_str());
+    request->setAttribute("tmpFile", tmpFilename);
+  }
+
+  if (!request->hasAttribute("tmpFile")
+        || request->getAttribute("tmpFile").isEmpty()) {
+    return;
+  }
+
+  const String &tmpFilename = request->getAttribute("tmpFile");
+  File file = LittleFS.open(tmpFilename.c_str(), !index ? "w" : "a");
+  if (!file) {
+    Serial.printf_P(PSTR("Failed to open `%s` for %s (%u)\n"), tmpFilename.c_str(), index ? "appending" : "writing", file.getWriteError());
+    request->setAttribute("tmpFile", "");
+    return;
+  }
+
+  file.write(data, len);
+  file.close();
+
+  if (final) {
+    Serial.printf("Webapp upload ended: %u bytes\n", index+len);
+  }
+
+}
+
+void handleWebappUploaded(AsyncWebServerRequest *request) {
+
+  Serial.println("Webapp uploaded");
+
+  Dir clear = LittleFS.openDir(FF(assetsDir));
+  while (clear.next()) {
+    if (clear.isFile()) {
+      if (!clear.fileName().startsWith("tmp_")) {
+        char path[200];
+        strcpy(path, clear.fileName().c_str());
+        if (path[clear.fileName().length() - 1] != '/') {
+          strcpy(path + clear.fileName().length(), "/");
+        }
+        strcpy(path + strlen(path), clear.fileName().c_str());
+        Serial.printf_P(PSTR("  CLEARING: %s\n"), clear.fileName().c_str());
+        LittleFS.remove(path);
+      }
+    }
+  }
+  Dir move = LittleFS.openDir(FF(assetsDir));
+  while (move.next()) {
+    if (move.isFile()) {
+      if (move.fileName().startsWith("tmp_")) {
+        const char *from = move.fileName().c_str();
+        char to[200];
+        strcpy_P(to, (PGM_P) assetsDir);
+        strcpy(to + strlen(to), from + 4);
+        Serial.printf_P(PSTR("  MOVING: %s > %s\n"), move.fileName().c_str(), to);
+        LittleFS.rename(from, to);
+      }
+    }
+  }
+  Dir indexFrom = LittleFS.openDir(FF(tmpIndexFile));
+  if (indexFrom.next()) {
+    Dir indexTo = LittleFS.openDir(FF(indexFile));
+    if (indexTo.next()) {
+      Serial.printf_P(PSTR("  CLEARING: %s\n"), FF(indexFile));
+      LittleFS.remove(FF(indexFile));
+    }
+    Serial.printf_P(PSTR("  MOVING: %s > %s\n"), FF(tmpIndexFile), FF(indexFile));
+    LittleFS.rename(FF(tmpIndexFile), FF(indexFile));
+  }
+
+  AsyncWebServerResponse *response = request->beginResponse(307, "text/plain"); // Temporary Redirect
+  response->addHeader(F("Location"), F("/"));
+  request->send(response);
+
 }
 
 void handleGetConfig(AsyncWebServerRequest *request) {

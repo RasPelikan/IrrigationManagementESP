@@ -140,7 +140,7 @@ bool readConfigFile(File configFile) {
 
   JsonObject docWifiConfig = doc["wifi"];
   if (!docWifiConfig.isNull()) {
-    wifiConfig.port = docWifiConfig["port"];
+    wifiConfig.channel = docWifiConfig["channel"];
   }
   wifiConfig.mac = NULL;
 

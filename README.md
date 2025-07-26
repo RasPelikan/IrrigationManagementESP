@@ -21,9 +21,9 @@ The firmware is compatible to any [NodeMCU modul](https://www.amazon.de/dp/B06Y1
 
 An MCP23017 (I2C) is used control LEDs and relais, because the system is able to control
 two pumps, six valves and has three LEDs which is in total 16 GPIOs which is more than
-the board provides.
+the NodeMCU modul provides.
 
-For measurment of pressure a [sensor](https://www.amazon.de/dp/B07SYLH59Q) ([sensor values](./readme/sensor-values.xlsx))
+For measurement of pressure a [sensor](https://www.amazon.de/dp/B07SYLH59Q) ([sensor values](./readme/sensor-values.xlsx))
 is used connected to the ADC pin.
 
 ## Build
@@ -43,76 +43,172 @@ npm run build
 cd ..
 ```
 
-## Configuration file
+Initially, the firmware and the files (webapp and config files) have to be uploaded via USB.
+Once the device is available via HTTP over the air (OTA) updates of the firmware can be done via
+URL `/update`. The configuration can be modified and also the webapp itself can be updated
+via webapp.
 
-There is a template for the configuration file: `config-template.json`. To upload your
-individual configuration file, make a new directory `data` in this project (it's already
-excluded but `.gitignore`) and place a copy of the template named als `config.json` into
-the new directory. Also the webapp (needs to be built before) is placed there for transfering to the device.
-
-Now you can use
+Once created initial config files (see section [Configuration files](#configuration-files))
+and the webapp, one can use the
 [Arduino IDE ESP8266 LittleFS Filessystem Uploader Plugin](https://randomnerdtutorials.com/arduino-ide-2-install-esp8266-littlefs/)
-to send the file to your board.
+to send all files to your board.
 
-Hint: There are [connectivity issues](https://olimex.wordpress.com/2021/12/10/avoid-wifi-channel-12-13-14-when-working-with-esp-devices/) for port greater than 11.
+## Configuration files
 
-## config-template.json
+There are two configuration files: `credentials.json` and `config.json`. The `config.json` can be modified
+via webapp. The `credentials.json` has to be uploaded via USB.
 
-### Wifi
+### Credentials
+
+Create a file `/data/credentials.json` and use this as a template:
 
 ```json
 {
   "wifi": {
-    "ssid": "YourWifiSSID",
-    "password": "YourWifiPassword",
-    "port": 11
+    "ssid": "Your-Wifi-SSID",
+    "password": "Your-Wifi-Password"
   },
   "http": {
-    "username": "im",
-    "password": "Secure_123"
-  },
-  ...
-}```
-
-`wifi.ssid` and `wifi.password` is mandatory. `wifi.port` is optional and can be used to choose
-a specific access point by it's port.
-
-If `http` section is given, then the web application will be protected using the credentials given
-in `http.username` and `http.password`.
-
-### Well pump interval
-
-Most low rate well pumps are not supposed to run 24h without any break.
-Typically, an cycle is given which needs to be configured like this:
-
-```c
-#define PUMP_WELL_SLEEP 15  // 15/45 minute cycle
-#define PUMP_WELL_RUN 45    // 45/15 minute cycle
+    "username": "Your-Webapp-Username",
+    "password": "Your-Webapp-Password"
+  }
+}
 ```
-### Water sensor hysteresis
 
-Once a changed water level is detected it is necessary to pause sensing for update
-because waves in the container might cause fluctuation messurements. In electronic
-terms this is called hysteresis. Set a proper value according to the size of your
-container: For bigger containers it takes more time to pump enough water so waves
-cause this issue.
+### Configuration
 
-```c
-#define WATERLEVEL_HYSTERESIS 120  // 120 seconds = 2 minutes
-````
+Create a file `/data/config.json` and use this as a template:
 
-### Water pressure sensor hysteresis
+```json
+{
+  "wifi": {                 // optional
+    "channel": 9            // the wifi channel to connect to (may be useful in case of several access points)
+  },
+  "pumps": {
+    "well": {               // well-pump specific config
+      "cycle": {            // the cycle in to pump water
+                            // typically pumps are not meant to run without break
+        "on": 45,           // minutes how long to pump
+        "off": 15           // minutes of the break
+      }
+    },
+    "irrigation": {         // irrigation specific config
+      "hysteresis": 1200    // seconds how long to pause once the pump was switch off 
+                            // typically pumps are only allowed to start x times per hour
+    }
+  },
+  "water": {
+    "level": {              // water-level specific config
+      "hysteresis": 120     // once a changed water level is detected it is necessary to pause sensing for update
+                            // because waves in the container might cause fluctuation messurements. In electronic
+                            // terms this is called hysteresis. Set a proper value according to the size of your
+                            // container: For bigger containers it takes more time to pump enough water so waves
+                            // cause this issue. The unit is seconds.
+    },
+    "pressure": {           // water-pressure specific config
+      "low": 3.0,           // the low end in bar to start the irrigation pump
+      "high": 5.5,          // the high end in bar to stop the irrigation pump
+      "reference": {        // to setup ADC for pressure sensor
+        "low": {            // pump water at pressure of e.g. 1 bar into the system (don't use 0 bar for 'low')
+          "bar": 1.0,       // the exact pressure one can read from analog sensor
+          "value": 250      // the ADC value shown in the webapp (values from 0 to 1023)
+        },
+        "high": {           // pump water at pressure of e.g. 5 bar into the system
+          "bar": 5.0,       // the exact pressure one can read from analog sensor
+          "value": 800      // the ADC value shown in the webapp (values from 0 to 1023)
+        }
+      }
+    }
+  },
+  "valves": [               // valves available in the entire system
+    {
+     "id": "local1",        // a valves ID
+     "gpio": 1              // the GPIO number in case of controlling via GPIO
+    },
+    {
+     "id": "remote1",       // also remote valves are supported:
+     "remote": "http://10.0.0.47/valve/1"
+                            // a POST request is sent every minute to activate the valve
+                            // having body "active=true" or "active=false". The remote pump
+                            // should switch off once there is no request for 90 seconds.
+    }
+  ],
+  "areas": {                  // areas in the garden for irrigation
+    "road": {                 // name of the area
+     "reset": true,           // wether sequences should start at the beginning in each cycle
+     "sequence": [            // sequences of irrigation this area
+      {
+       "duration": 2,         // duration in minutes
+       "valves": ["local1"]   // valves to be activated
+      },
+      {
+       "duration": 2,
+       "valves": ["remote1"]
+      }
+     ]
+    },
+    "lawn": {
+     "reset": false,
+     "sequence": [
+       {
+         "duration": 6,
+         "valves": ["local1"]
+       },
+       {
+         "duration": 6,
+         "valves": ["local1", "remote1"]
+       },
+       {
+         "duration": 6,
+         "valves": ["remote1"]
+       }
+     ]
+    }
+  },
+  "cycles": [               // cycles to irrigate areas
+    {
+     "start": "0530",       // time of start
+     "end": "0540",         // time of end
+     "area": "road"         // area to irrigate
+    },
+    {
+     "start": "2200",
+     "end": "2210",
+     "area": "road"
+    },
+    {
+     "start": "2210",
+     "end": "2300",
+     "area": "lawn"
+    },
+    {
+     "start": "0500",
+     "end": "0530",
+     "area": "lawn"
+    }
+  ]
+}
+```
 
-The water pressure is measured using ADC input (values from 0 to 1023). One can define
-the lower and upper boundary and the hysteresis: how long the irrigation pump will
-stay switched off once is has been switch off.
+Hints:
 
-```c
-#define WATERPRESSURE_LOW_END 200
-#define WATERPRESSURE_LOW_HYSTERESIS 5 // disable switching off for 5 seconds
-#define WATERPRESSURE_HIGH_END 600
-#define WATERPRESSURE_HIGH_HYSTERESIS 20 // disable switching on for 2 minutes
-````
+1. Strip comments from JSON, otherwise parser will fail.
+1. There are WIFI [connectivity issues](https://olimex.wordpress.com/2021/12/10/avoid-wifi-channel-12-13-14-when-working-with-esp-devices/) for port greater than 11.
 
-Hint: There is [data available](./readme/sensor-values.xlsx) for this sensor:
-[https://www.amazon.de/dp/B07SYLH59Q](https://www.amazon.de/dp/B07SYLH59Q).
+## OTA updates
+
+### Firmware
+
+1. In ArduinoIDE run "Export compiled binary" of menu "Sketch".
+1. Use the URL `/update` to load the update form titled `ElegantOTA`.
+1. Ensure OTA mode is `Firmware`.
+1. Select the bindary file exported.
+   1. On MacOS it is found at /private/var/folders/b2/*/T/arduino/sketches/*/IrrigationManagementESP.ino.bin
+   1. On Windows: t.b.d.
+   1. On Linux: t.b.d.
+
+### Webapp
+
+1. Use the URL `/webapp-upload` to load the upload form.
+1. Build the webapp by running `npm run build`
+1. All files of the webapp have to be added for upload (`data/www/index.html` and all files in `data/www/assets`)!

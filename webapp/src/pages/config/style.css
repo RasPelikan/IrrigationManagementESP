@@ -1,0 +1,9 @@
+.config-main {
+    display: flex;
+    flex-direction: column;
+}
+
+.config-main > textarea {
+    flex-grow: 1;
+    flex-shrink: 1;
+}

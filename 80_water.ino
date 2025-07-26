@@ -117,6 +117,7 @@ void addWaterPressureStatus(JsonDocument &doc) {
 
   float pressure = (waterPressure - irrigationConfig.pressureAdcOffset) / irrigationConfig.pressureAdcGradient;
   doc["waterPressure"] = pressure;
+  doc["waterPressureAdc"] = waterPressure;
 
 }
 

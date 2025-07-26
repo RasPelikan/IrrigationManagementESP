@@ -1,7 +1,10 @@
 import { useContext, useEffect, useLayoutEffect, useState } from "react";
 import { AppContext } from "../../index";
+import "./style.css";
+import { useLocation } from "preact-iso";
 
 const Config = ({}) => {
+  const { route } = useLocation();
   const { setPageTitle } = useContext(AppContext);
   useLayoutEffect(() => {
     setPageTitle('Config');
@@ -22,6 +25,12 @@ const Config = ({}) => {
       headers: new Headers({ 'Content-Type': 'application/json' }),
       body: config,
     }).catch(error => console.log(error));
+  };
+  const reboot = () => {
+    fetch('/api/reboot', {
+      method: 'GET',
+    }).catch(error => console.log(error));
+    route("/");
   };
   useEffect(() => {
     if (config === undefined) {
@@ -44,14 +53,16 @@ const Config = ({}) => {
   }, [config, setConfig]);
 
   return (
-      <div className="status-main" style={ { display: "flex", flexDirection: "column" } }>
-        <textarea style={ { flexGrow: 1, flexShrink: 1 } } id="configTextArea"
+      <div className="status-main config-main">
+        <textarea
             onChange={ event => setConfig(event.target.value) }
             value={ config } />
         <p>
           <button disabled={ !config } onClick={ save }>Save</button>
           &nbsp;
           <button disabled={ !config } onClick={ reset }>Reset</button>
+          &nbsp;
+          <button onClick={ reboot }>Reboot</button>
         </p>
       </div>);
 };

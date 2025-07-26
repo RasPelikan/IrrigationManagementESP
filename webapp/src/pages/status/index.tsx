@@ -1,4 +1,4 @@
-import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AppContext } from "../../index";
 import "./style.css";
 
@@ -9,6 +9,7 @@ interface ImStatus {
   heap?: number;
   waterLevel?: number;
   waterPressure?: number;
+  waterPressureAdc?: number;
   irrigationPump: 'active' | 'inactive' | 'out-of-water';
   irrigationPumpMode: 'off' | 'auto';
   wellPump: 'active-cycle' | 'inactive-cycle' | 'inactive';
@@ -23,6 +24,7 @@ const Status = ({}) => {
   });
 
   const [ currentDate, setCurrentDate ] = useState<Date | undefined>(undefined);
+  const currentDateRef = useRef<number>(0);
   const timerRef = useRef<number>(-1);
   const [ status, setStatus ] = useState<ImStatus>({
     irrigationPump: "inactive",
@@ -44,6 +46,7 @@ const Status = ({}) => {
       if (event.target.readyState != EventSource.OPEN) {
         console.log("Events Disconnected");
         setConnected(false);
+        setTimeout(() => eventSource.current = new EventSource('/api/status-events'), 2000);
       } else {
         console.error("Event Source error:", event);
       }
@@ -52,12 +55,14 @@ const Status = ({}) => {
       const data = JSON.parse(event.data);
       setStatus(data);
       if (data['currentDate']) {
-        setCurrentDate(new Date(data['currentDate']));
+        currentDateRef.current = new Date(data['currentDate']).getTime();
       }
-      timerRef.current = setInterval((offset: number) => {
-        setCurrentDate((prevCurrentDate) => new Date(prevCurrentDate.getTime() + 1000));
-      }, 1000);
     });
+    timerRef.current = setInterval(() => {
+      if (currentDateRef.current === 0) return;
+      currentDateRef.current += 1000;
+      setCurrentDate(new Date(currentDateRef.current));
+    }, 1000);
     return () => {
       if (timerRef.current !== -1) {
         clearInterval(timerRef.current);
@@ -67,7 +72,7 @@ const Status = ({}) => {
       setStatus(undefined);
       eventSource.current.close();
     }
-  }, [ setConnected, setStatus, setCurrentDate ]);
+  }, [ setConnected, setCurrentDate, setStatus, timerRef ]);
 
   useEffect(() => {
     const updateEventListener = (event: MessageEvent) => {
@@ -77,7 +82,7 @@ const Status = ({}) => {
         ...data
       });
       if (data['currentDate']) {
-        setCurrentDate(new Date(data['currentDate']));
+        currentDateRef.current = new Date(data['currentDate']).getTime();
       }
     };
     eventSource.current.addEventListener('UPDATE', updateEventListener);
@@ -192,8 +197,10 @@ const Status = ({}) => {
                   <td>
                     <div>
                       {
-                        status.waterPressure
-                      }bar
+                        status.waterPressure?.toFixed(2)
+                      }bar (ADC: {
+                        status.waterPressureAdc
+                      })
                     </div>
                   </td>
                 </tr>

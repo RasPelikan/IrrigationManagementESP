@@ -82,13 +82,13 @@ void activateWifi() {
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false); // reconnect is done manually every minute
   WiFi.mode(WIFI_STA);
-  if (wifiConfig.port != 0) {
+  if (wifiConfig.channel != 0) {
     if (wifiConfig.mac == NULL) {
-      WiFi.begin(wifiConfig.ssid, wifiConfig.password, wifiConfig.port);
+      WiFi.begin(wifiConfig.ssid, wifiConfig.password, wifiConfig.channel);
     } else {
       /*
       unsigned char wifiMac[18] = WIFI_MAC;
-      WiFi.begin(wifiConfig.ssid, wifiConfig.password, wifiConfig.port, wifiMac);
+      WiFi.begin(wifiConfig.ssid, wifiConfig.password, wifiConfig.channel, wifiMac);
       */
     }
   } else {
@@ -147,14 +147,26 @@ void wifiConnected() {
 
 void handleNotFound(AsyncWebServerRequest *request) {
 
-  Serial.println("Not found");
-  String message = F("File Not Found\n\n");
-  message += F("URI: ");
-  message += request->url();
-  message += F("\nMethod: ");
-  message += request->methodToString();
-  message += "\n";
-  request->send(404, F("text/plain"), message);
+  File file = LittleFS.open(F("/www/index.html"), "r");
+  if (!file || !file.available() || !file.isFile()){
+    Serial.println("Not found");
+    String message = F("File Not Found\n\n");
+    message += F("URI: ");
+    message += request->url();
+    message += F("\nMethod: ");
+    message += request->methodToString();
+    message += "\n";
+    request->send(404, F("text/plain"), message);
+  }
+
+  AsyncResponseStream *response = request->beginResponseStream("text/html");
+  while (file.available() > 0) {
+    String line = file.readString();
+    response->print(line);
+  }
+  request->send(response);
+
+  file.close();
 
 }
 

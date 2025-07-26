@@ -1,7 +1,10 @@
+// see https://forum.arduino.cc/t/how-to-get-one-pointer-for-all-identical-string/1086116/16
+#define FF(x) ((__FlashStringHelper*) x)
+
 struct WifiConfig {
   char *ssid;
   char *password;
-  uint8_t port;
+  uint8_t channel;
   char *mac;
   char *httpUsername;
   char *httpPassword;

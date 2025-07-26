@@ -18,11 +18,11 @@ const Header = () => {
   return (
       <header>
         <div class="title">{ pageTitle }</div>
-        <div class="menu-icon" onClick={ () => jumpToPage(path === '/config' ? 'main' : 'config') }>
+        <div class="menu-icon" onClick={ () => jumpToPage(path === '/' ? 'config' : 'main') }>
           {
-            path === '/config'
-              ? <MenuIcon fillColor={ 'white' } />
-              : <ConfigIcon fillColor={ 'white' } />
+            path === '/'
+              ? <ConfigIcon fillColor={ 'white' } />
+              : <MenuIcon fillColor={ 'white' } />
           }
         </div>
       </header>
