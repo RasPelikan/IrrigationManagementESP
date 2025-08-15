@@ -11,6 +11,7 @@ void setWebAppStatusEndpoints() {
   statusEvents.onDisconnect(statusClientDisconnected);
   httpRestServer.addHandler(&statusEvents);
   httpRestServer.on("/api/config", HTTP_GET, handleGetConfig);
+  httpRestServer.on("/api/config", HTTP_POST, handleSetConfig, NULL, handleConfigUpload);
   httpRestServer.on("/api/webapp", HTTP_POST, handleWebappUploaded, handleWebappUpload);
   httpRestServer.on("/api/reboot", HTTP_GET, handleDoReboot);
   
