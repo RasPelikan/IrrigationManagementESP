@@ -49,6 +49,7 @@ void setupWifi() {
   httpRestServer.on("/rssi", HTTP_GET, handleRSSI);
   setupWellPumpEndpoints();
   setupIrrigationPumpEndpoints();
+  setupIrrigationEndpoints();
   httpRestServer.onNotFound(handleNotFound);
   AsyncStaticWebHandler &handler = httpRestServer
       .serveStatic("/", LittleFS, "/www/")

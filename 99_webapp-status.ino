@@ -243,9 +243,12 @@ void updateStatusClients(uint8_t what) {
   if (what & STATUS_UPDATE_IRRIGATIONPUMP) {
     addIrrigationPumpStatus(doc);
   }
-  char initialStatusEvent[300];
-  serializeJson(doc, initialStatusEvent);
-  statusEvents.send(initialStatusEvent, what == STATUS_UPDATE_ALL ? F("INIT") : F("UPDATE"), millis(), 1000);
+  if (what & STATUS_UPDATE_CYCLE) {
+    addCycleStatus(doc);
+  }
+  String json;
+  serializeJson(doc, json);
+  statusEvents.send(json.c_str(), what == STATUS_UPDATE_ALL ? F("INIT") : F("UPDATE"), millis(), 1000);
 
 }
 

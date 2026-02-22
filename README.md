@@ -33,6 +33,7 @@ This project is meant to be opened in ArduinoIDE. One needs to add libraries:
 1. `ESP Async WebServer` (Version 3.7.9)
 1. `ESP Async TCP` (Version 2.0.0)
 1. `ElegantOTA` (Version 3.1.7, turned to [async mode](https://docs.elegantota.pro/getting-started/async-mode))
+1. `ArduinoJson` (Version 7.4.2)
 
 The webapp included has to be built like this manually:
 

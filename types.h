@@ -21,12 +21,18 @@ struct IrrigationConfig {
   float pressureAdcGradient;  // ADC value gradient for 1 bar
 };
 
+#define VALVE_MODE_AUTO 0
+#define VALVE_MODE_ON   1
+#define VALVE_MODE_OFF  2
+
 struct Valve {
   uint8_t gpio;
   char *url;
   char *id;
   uint8_t index;
   bool active;
+  bool on;
+  uint8_t mode;
 };
 
 struct Sequence {

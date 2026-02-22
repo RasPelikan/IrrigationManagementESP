@@ -2,6 +2,13 @@ import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState }
 import { AppContext } from "../../index";
 import "./style.css";
 
+interface Valve {
+  id: string;
+  mode: 'on' | 'off' | 'auto';
+  active: boolean;
+  on: boolean;
+}
+
 interface ImStatus {
   error?: string;
   rssi?: number;
@@ -15,6 +22,7 @@ interface ImStatus {
   wellPump: 'active-cycle' | 'inactive-cycle' | 'inactive';
   wellPumpMode: 'on' | 'off' | 'auto';
   wellPumpCycle?: number;
+  valves?: Valve[];
 }
 
 const Status = ({}) => {
@@ -102,6 +110,14 @@ const Status = ({}) => {
       method: 'POST',
       headers: new Headers({ 'Content-Type': 'application/x-www-form-urlencoded' }),
       body: `mode=${mode}`
+    }).catch(error => console.log(error));
+  };
+
+  const setValveMode = (index: number, mode: 'on' | 'off' | 'auto') => {
+    fetch(`/api/irrigation/valve`, {
+      method: 'POST',
+      headers: new Headers({ 'Content-Type': 'application/x-www-form-urlencoded' }),
+      body: `index=${index}&mode=${mode}`
     }).catch(error => console.log(error));
   };
 
@@ -283,6 +299,51 @@ const Status = ({}) => {
                         </button>
                       </div>
                     </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Valves:</td>
+                  <td>
+                    {
+                      status.valves?.map((valve, valveIndex) =>
+                          <div>
+                            <div>
+                              {
+                                valve.on
+                                    ? <div className="led-off led-blinking-blue"></div>
+                                    : <div className="led-off led-grey"></div>
+                              }
+                              &nbsp;
+                              {
+                                valve.id
+                              }
+                              :&nbsp;
+                              {
+                                valve.on
+                                    ? "on"
+                                    : "off"
+                              }
+                            </div>
+                            <div>
+                              <button
+                                  style={ valve.mode === 'on' ? { backgroundColor: 'grey', color: 'white' } : undefined }
+                                  onClick={ () => setValveMode(valveIndex, 'on') }>
+                                1
+                              </button>
+                              <button
+                                  style={ valve.mode === 'auto' ? { backgroundColor: 'grey', color: 'white' } : undefined }
+                                  onClick={ () => setValveMode(valveIndex, 'auto') }>
+                                A
+                              </button>
+                              <button
+                                  style={ valve.mode === 'off' ? { backgroundColor: 'grey', color: 'white' } : undefined }
+                                  onClick={ () => setValveMode(valveIndex, 'off') }>
+                                0
+                              </button>
+                            </div>
+                          </div>)
+                    }
+
                   </td>
                 </tr>
                 </tbody>

@@ -56,7 +56,8 @@ Adafruit_MCP23X17 portExpander;
 #define STATUS_UPDATE_TIME 8
 #define STATUS_UPDATE_WATERPRESSURE 16
 #define STATUS_UPDATE_WATERLEVEL 32
-#define STATUS_UPDATE_ERROR 64
+#define STATUS_UPDATE_CYCLE 64
+#define STATUS_UPDATE_ERROR 128
 
 #define MAX_ERROR_LENGTH 300
 
@@ -163,9 +164,12 @@ void loop() {
       // 4. controll well pump
       controlWellPump();
 
-      // 5. do irrigation
+      // 5. do irrigation cycles
       checkForActiveCycles();
-      
+
+      // 6. switch valves according to current cycle
+      switchValves();
+
       // reactive Wifi if connection lost
       if (wifiStatus == WIFI_STATUS_DISCONNECTED) {
         activateWifi();

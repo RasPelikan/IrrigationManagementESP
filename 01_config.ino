@@ -285,6 +285,8 @@ bool readConfigFile(File configFile) {
     Valve &valve = valves[i];
     valve.index = i;
     valve.active = false;
+    valve.on = false;
+    valve.mode = VALVE_MODE_AUTO;
 
     const char *id = docValve["id"];
     if (id == NULL) {

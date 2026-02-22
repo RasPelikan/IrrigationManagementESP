@@ -10,11 +10,12 @@
     height: 2rem;
     font-weight: bold;
     width: 6.5rem;
+    vertical-align: top;
 }
 
 .status-table > tbody > tr > td:nth-child(2) {
     display: flex;
-    flex-direction: row;
+    flex-direction: column;
 }
 
 .status-table > tbody > tr > td:nth-child(2) > div {
@@ -105,6 +106,16 @@
     animation: blinking 1s infinite;
     position: absolute;
     background-color: #00ff00;
+}
+
+.led-blinking-blue::before {
+    position: absolute;
+    background-color: blue;
+}
+
+.led-grey::before {
+    position: absolute;
+    background-color: lightgrey;
 }
 
 @-webkit-keyframes blinking {

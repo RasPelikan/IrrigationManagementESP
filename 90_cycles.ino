@@ -1,4 +1,16 @@
+#define MODE_VALVE_ON 1
+#define MODE_VALVE_AUTO 0
+#define MODE_VALVE_OFF 2
+#define MODE_VALVE_PARAM "mode"
+#define INDEX_VALVE_PARAM "index"
+
 bool *activeCycles = NULL;                 // tracks which cycle is active
+
+void setupIrrigationEndpoints() {
+
+  httpRestServer.on("/api/irrigation/valve", HTTP_POST, handleValveMode);
+
+}
 
 void checkForValvesOfCycle(Cycle *cycle, bool *valveStatus) {
 
@@ -168,3 +180,94 @@ void setupValves() {
   portExpander.digitalWrite(GPIO_VALVE_6, RELAIS_OFF);
 
 }
+
+void switchValves() {
+
+  // test for all valves to be switched on or off due to cycles
+  bool *valveStatus = new bool[numberOfValves];
+  for (uint8_t i = 0; i < numberOfValves; ++i) {
+    if (valves[i].mode == VALVE_MODE_AUTO) {
+      switchValve(i, valves[i].active);
+    }
+  }
+  updateStatusClients(STATUS_UPDATE_CYCLE);
+
+}
+
+void switchValve(uint8_t index, boolean on) {
+
+  if (valves[index].url != NULL) {
+    switchRemoteValve(valves[index].url, on);
+  } else {
+    switchGpioValve(valves[index].gpio, on);
+  }
+  valves[index].on = on;
+
+}
+
+void switchRemoteValve(char *url, boolean on) {
+}
+
+void switchGpioValve(uint8_t gpio, boolean on) {
+
+  uint8_t valveGpio;
+  switch (gpio) {
+    case 1: valveGpio = GPIO_VALVE_1; break;
+    case 2: valveGpio = GPIO_VALVE_2; break;
+    case 3: valveGpio = GPIO_VALVE_3; break;
+    case 4: valveGpio = GPIO_VALVE_4; break;
+    case 5: valveGpio = GPIO_VALVE_5; break;
+    case 6: valveGpio = GPIO_VALVE_6; break;
+    default: valveGpio = 255;
+  }
+  if (gpio != 255) {
+    portExpander.digitalWrite(valveGpio, on ? RELAIS_ON : RELAIS_OFF);
+  }
+
+}
+
+void addCycleStatus(JsonDocument &doc) {
+
+  JsonArray valvesArray = doc[F("valves")].to<JsonArray>();
+  for (uint8_t i = 0; i < numberOfValves; ++i) {
+    JsonObject valveObj = valvesArray.add<JsonObject>();
+    valveObj["id"] = valves[i].id;
+    valveObj["mode"] = valves[i].mode == VALVE_MODE_ON
+        ? "on"
+        : valves[i].mode == VALVE_MODE_OFF
+        ? "off"
+        : "auto";
+    valveObj["active"] = valves[i].active;
+    valveObj["on"] = valves[i].on;
+  }
+
+}
+
+void handleValveMode(AsyncWebServerRequest *request) {
+
+  request->send(200, F("text/plain"), F(""));
+  if (request->hasParam(MODE_VALVE_PARAM, true)
+      && request->hasParam(INDEX_VALVE_PARAM, true)) {
+    uint8_t index = constrain(request->getParam(INDEX_VALVE_PARAM, true)->value().toInt(), 0, 255);
+    String value = request->getParam(MODE_VALVE_PARAM, true)->value();
+    bool updated = false;
+    if (value.equals(F("auto")) && (valves[index].mode != MODE_VALVE_AUTO)) {
+      valves[index].mode = MODE_VALVE_AUTO;
+      switchValves();
+      updated = true;
+    } else if (value.equals(F("off")) && (valves[index].mode != MODE_VALVE_OFF)) {
+      valves[index].mode = MODE_VALVE_OFF;
+      switchValve(index, false);
+      updated = true;
+    } else if (value.equals(F("on")) && (valves[index].mode != MODE_VALVE_ON)) {
+      valves[index].mode = MODE_VALVE_ON;
+      switchValve(index, true);
+      updated = true;
+    }
+    if (updated) {
+      updateStatusClients(STATUS_UPDATE_CYCLE);
+    }
+  }
+
+}
+
