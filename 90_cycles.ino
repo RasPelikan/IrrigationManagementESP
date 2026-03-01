@@ -22,7 +22,7 @@ void checkForValvesOfCycle(Cycle *cycle, bool *valveStatus) {
   uint16_t calculatedDuration = 0;
   for (uint8_t sequenceIndex = 0; !activeSequenceFound && sequenceIndex < sizeOfSequence; ++sequenceIndex) {
     Sequence *sequence = &(cycle->area->sequence[sequenceIndex]);
-    
+
     // sequence was already processed
     if ((calculatedDuration + sequence->duration) <= cycle->area->irrigatedPeriod) {
       calculatedDuration += sequence->duration;
@@ -48,7 +48,7 @@ void checkForActiveCycles() {
   for (uint8_t i = 0; i < numberOfCycles; ++i) {
     calculatedCycles[i] = NULL;
   }
-  
+
   // scan past 24 hours to get cycles currently active. this is necessary because
   // starting within a cycle, the cycle would not be activated otherwise.
   for (uint8_t currentHour = 0; currentHour < 24; ++currentHour) {
@@ -84,7 +84,7 @@ void checkForActiveCycles() {
   }
 
   /* calculate active valves */
-  
+
   // assume all valves to be inactive
   bool *valveStatus = new bool[numberOfValves];
   for (uint8_t i = 0; i < numberOfValves; ++i) {
@@ -107,7 +107,7 @@ void checkForActiveCycles() {
       // cycle needs to be deactivated
       if (calculatedCycles[cycleIndex] == NULL) {
 
-        Serial.printf_P(PSTR("Deactivating cycle %s\n"), activeCycle->area->name);
+        Serial.printf("Deactivating cycle %s\n", activeCycle->area->name);
         activeCycles[cycleIndex] = false;
         // reset tracking of how long irrigation happend
         if (activeCycle->area->resetOnActivation) {
@@ -120,7 +120,7 @@ void checkForActiveCycles() {
     // cycle needs to be activated
     else if (calculatedCycles[cycleIndex] != NULL) {
 
-      Serial.printf_P(PSTR("Activating cycle %s\n"), calculatedCycles[cycleIndex]->area->name);
+      Serial.printf("Activating cycle %s\n", calculatedCycles[cycleIndex]->area->name);
       activeCycles[cycleIndex] = true;
 
     }
@@ -138,17 +138,17 @@ void checkForActiveCycles() {
   for (uint8_t valveIndex = 0; valveIndex < numberOfValves; ++valveIndex) {
     if (valveStatus[valveIndex]) {
       if (!valves[valveIndex].active) {
-        Serial.printf_P(PSTR("%04d Activating valve %s\n"), time, valves[valveIndex].id);
+        Serial.printf("%04d Activating valve %s\n", time, valves[valveIndex].id);
         valves[valveIndex].active = true;
       }
     } else {
       if (valves[valveIndex].active) {
-        Serial.printf_P(PSTR("%04d Deactivating valve %s\n"), time, valves[valveIndex].id);
+        Serial.printf("%04d Deactivating valve %s\n", time, valves[valveIndex].id);
         valves[valveIndex].active = false;
       }
     }
   }
-  
+
   delete[] valveStatus;
   delete[] calculatedCycles;
 
@@ -166,19 +166,17 @@ void setupCycles() {
 
 void setupValves() {
 
-  portExpander.pinMode(GPIO_VALVE_1, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_1, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_2, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_2, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_3, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_3, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_4, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_4, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_5, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_5, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_6, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_6, RELAIS_OFF);
-
+  pinMode(GPIO_VALVE_1, OUTPUT);
+  digitalWrite(GPIO_VALVE_1, RELAIS_OFF);
+  pinMode(GPIO_VALVE_2, OUTPUT);
+  digitalWrite(GPIO_VALVE_2, RELAIS_OFF);
+  pinMode(GPIO_VALVE_3, OUTPUT);
+  digitalWrite(GPIO_VALVE_3, RELAIS_OFF);
+  pinMode(GPIO_VALVE_4, OUTPUT);
+  digitalWrite(GPIO_VALVE_4, RELAIS_OFF);
+  pinMode(GPIO_VALVE_5, OUTPUT);
+  digitalWrite(GPIO_VALVE_5, RELAIS_OFF);
+  
 }
 
 void switchValves() {
@@ -217,11 +215,10 @@ void switchGpioValve(uint8_t gpio, boolean on) {
     case 3: valveGpio = GPIO_VALVE_3; break;
     case 4: valveGpio = GPIO_VALVE_4; break;
     case 5: valveGpio = GPIO_VALVE_5; break;
-    case 6: valveGpio = GPIO_VALVE_6; break;
     default: valveGpio = 255;
   }
   if (gpio != 255) {
-    portExpander.digitalWrite(valveGpio, on ? RELAIS_ON : RELAIS_OFF);
+    digitalWrite(valveGpio, on ? RELAIS_ON : RELAIS_OFF);
   }
 
 }
@@ -270,4 +267,3 @@ void handleValveMode(AsyncWebServerRequest *request) {
   }
 
 }
-

@@ -1,20 +1,17 @@
-#define GPIO_IRRIGATIONPUMP 8 // GPB0
-#define GPIO_IRRIGATIONPUMP_LED 5 // GPA5
-
 #define MODE_IRRIGATIONPUMP_OFF 1
 #define MODE_IRRIGATIONPUMP_AUTO 0
 #define MODE_IRRIGATIONPUMP_PARAM "mode"
 
 bool irrigationPumpEnabled = false;
 bool irrigationPumpActive = false;
-uint8 irrigationPumpMode = MODE_IRRIGATIONPUMP_AUTO;
+uint8_t irrigationPumpMode = MODE_IRRIGATIONPUMP_AUTO;
 
 void setupIrrigationPump() {
 
-  portExpander.pinMode(GPIO_IRRIGATIONPUMP_LED, OUTPUT);
+  pinMode(GPIO_IRRIGATIONPUMP_LED, OUTPUT);
 
-  portExpander.pinMode(GPIO_IRRIGATIONPUMP, OUTPUT);
-  portExpander.digitalWrite(GPIO_IRRIGATIONPUMP, RELAIS_OFF);
+  pinMode(GPIO_IRRIGATIONPUMP, OUTPUT);
+  digitalWrite(GPIO_IRRIGATIONPUMP, RELAIS_OFF);
 
 }
 
@@ -27,12 +24,12 @@ void setupIrrigationPumpEndpoints() {
 void controlIrrigationPump() {
 
   if (irrigationPumpEnabled) {
-    
+
     if (irrigationPumpActive
         && (isWaterPressureHigh() || (irrigationPumpMode == MODE_IRRIGATIONPUMP_OFF))) {
 
       irrigationPumpActive = false;
-      portExpander.digitalWrite(GPIO_IRRIGATIONPUMP, RELAIS_OFF); // turn off irrigation pump
+      digitalWrite(GPIO_IRRIGATIONPUMP, RELAIS_OFF); // turn off irrigation pump
       updateStatusClients(STATUS_UPDATE_IRRIGATIONPUMP);
       Serial.println(F("Switched off irrigation pump because water-pressure beyond upper boundary"));
 
@@ -41,7 +38,7 @@ void controlIrrigationPump() {
         && (irrigationPumpMode != MODE_IRRIGATIONPUMP_OFF)) {
 
       irrigationPumpActive = true;
-      portExpander.digitalWrite(GPIO_IRRIGATIONPUMP, RELAIS_ON); // turn on irrigation pump
+      digitalWrite(GPIO_IRRIGATIONPUMP, RELAIS_ON); // turn on irrigation pump
       updateStatusClients(STATUS_UPDATE_IRRIGATIONPUMP);
       Serial.println(F("Switched on irrigation pump because water-pressure below lower boundary"));
 
@@ -50,7 +47,7 @@ void controlIrrigationPump() {
   } else if (irrigationPumpActive) {
 
     irrigationPumpActive = false;
-    portExpander.digitalWrite(GPIO_IRRIGATIONPUMP, RELAIS_OFF); // turn off irrigation pump
+    digitalWrite(GPIO_IRRIGATIONPUMP, RELAIS_OFF); // turn off irrigation pump
     updateStatusClients(STATUS_UPDATE_IRRIGATIONPUMP);
     Serial.println(F("Switched off irrigation pump because no water left in container"));
 
@@ -62,18 +59,18 @@ void blinkIrrigationPumpLed() {
 
   if (irrigationPumpActive) {
     if (interval >> 2 == 0) { // blinking slow
-      portExpander.digitalWrite(GPIO_IRRIGATIONPUMP_LED, HIGH);
+      digitalWrite(GPIO_IRRIGATIONPUMP_LED, HIGH);
     } else {
-      portExpander.digitalWrite(GPIO_IRRIGATIONPUMP_LED, LOW);
+      digitalWrite(GPIO_IRRIGATIONPUMP_LED, LOW);
     }
   } else if (!irrigationPumpEnabled) {
     if (interval % 2 == 0) { // blinking fast
-      portExpander.digitalWrite(GPIO_IRRIGATIONPUMP_LED, HIGH);
+      digitalWrite(GPIO_IRRIGATIONPUMP_LED, HIGH);
     } else {
-      portExpander.digitalWrite(GPIO_IRRIGATIONPUMP_LED, LOW);
+      digitalWrite(GPIO_IRRIGATIONPUMP_LED, LOW);
     }
   } else {
-    portExpander.digitalWrite(GPIO_IRRIGATIONPUMP_LED, LOW);
+    digitalWrite(GPIO_IRRIGATIONPUMP_LED, LOW);
   }
 
 }

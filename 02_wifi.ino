@@ -1,4 +1,5 @@
 #include "ElegantOTA.h"
+#include <esp_sntp.h>
 
 unsigned long ota_progress_millis = 0;
 
@@ -39,34 +40,24 @@ void onOTAEnd(bool success) {
 
 void setupWifi() {
 
-  // track los of Wifi connection
-  wifiConnectHandler = WiFi.onStationModeGotIP(onWifiConnect);
-  wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWifiDisconnect);
+  pinMode(GPIO_WIFI_LED, OUTPUT);
 
-  portExpander.pinMode(GPIO_WIFI_LED, OUTPUT);
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(false); // reconnect is done manually every minute
+  WiFi.mode(WIFI_STA);
+  WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+  WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
 
-  // Setup REST endpoints
-  httpRestServer.on("/rssi", HTTP_GET, handleRSSI);
-  setupWellPumpEndpoints();
-  setupIrrigationPumpEndpoints();
-  setupIrrigationEndpoints();
-  httpRestServer.onNotFound(handleNotFound);
-  AsyncStaticWebHandler &handler = httpRestServer
-      .serveStatic("/", LittleFS, "/www/")
-      .setDefaultFile("index.html")
-      .setCacheControl("no-cache, no-store, max-age=0");
-  if (wifiConfig.httpUsername != NULL) {
-    if (wifiConfig.httpPassword == NULL) {
-      setError(PSTR("Config JSON has no or empty value 'http.password'!"));
-      Serial.println(error);
-    } else {
-      handler.setAuthentication(wifiConfig.httpUsername, wifiConfig.httpPassword);
-    }
-  }
+  // initialize WiFi driver and get MAC address
+  WiFi.disconnect(false, true);  // keep radio on, clear saved credentials
+  delay(100);
 
-  setWebAppStatusEndpoints();
+  Serial.print("MAC-address: ");
+  Serial.println(WiFi.macAddress());
 
-  setupOTA();
+  // register event handlers
+  WiFi.onEvent(onWifiConnect, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  WiFi.onEvent(onWifiDisconnect, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
   // turn on Wifi
   activateWifi();
@@ -75,14 +66,17 @@ void setupWifi() {
 
 void activateWifi() {
 
+  // if already connecting, disconnect first to avoid "sta is connecting" error
+  if (WiFi.status() == WL_CONNECTED || wifiStatus == WIFI_STATUS_CONNECTING) {
+    WiFi.disconnect(false);
+    delay(100);
+  }
+
   Serial.print(F("Connecting to "));
   Serial.println(wifiConfig.ssid);
 
   wifiStatus = WIFI_STATUS_CONNECTING;
 
-  WiFi.persistent(false);
-  WiFi.setAutoReconnect(false); // reconnect is done manually every minute
-  WiFi.mode(WIFI_STA);
   if (wifiConfig.channel != 0) {
     if (wifiConfig.mac == NULL) {
       WiFi.begin(wifiConfig.ssid, wifiConfig.password, wifiConfig.channel);
@@ -98,21 +92,51 @@ void activateWifi() {
 
 }
 
-void onWifiConnect(const WiFiEventStationModeGotIP& event) {
+void onWifiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
 
   wifiStatus = WIFI_STATUS_WAITING_FOR_NTP;
-  wifiConnected();
+
+  Serial.print(F("Connected to WiFi: "));
+  Serial.println(WiFi.localIP().toString());
+
+  // Setup REST endpoints
+  httpRestServer.on("/rssi", HTTP_GET, handleRSSI);
+  setupWellPumpEndpoints();
+  setupIrrigationPumpEndpoints();
+  setupIrrigationEndpoints();
+  httpRestServer.onNotFound(handleNotFound);
+  AsyncStaticWebHandler &handler = httpRestServer
+      .serveStatic("/", LittleFS, "/www/")
+      .setDefaultFile("index.html")
+      .setCacheControl("no-cache, no-store, max-age=0");
+  if (wifiConfig.httpUsername != NULL) {
+    if (wifiConfig.httpPassword == NULL) {
+      setError("Config JSON has no or empty value 'http.password'!");
+      Serial.println(error);
+    } else {
+      handler.setAuthentication(wifiConfig.httpUsername, wifiConfig.httpPassword);
+    }
+  }
+
+  setupNtp();
+  setWebAppStatusEndpoints();
+
+  setupOTA();
+
+  // start HTTP server (works even before WiFi connects, just won't receive requests)
+  httpRestServer.begin();
 
 }
 
-void onWifiDisconnect(const WiFiEventStationModeDisconnected& event) {
+void onWifiDisconnect(WiFiEvent_t event, WiFiEventInfo_t info) {
 
   wifiStatus = WIFI_STATUS_DISCONNECTED;
-  wifiDisconnected();
+  Serial.println(F("WiFi disconnected!"));
+  httpRestServer.end();
 
 }
 
-void ntpTimeIsSet(bool from_sntp /* <= this parameter is optional */) {
+void ntpTimeIsSet(struct timeval *tv) {
 
   wifiStatus = WIFI_STATUS_NTP_ACTIVE;
   if (now == 0) {   // first NTP sync
@@ -132,24 +156,15 @@ void ntpTimeIsSet(bool from_sntp /* <= this parameter is optional */) {
 // https://www.weigu.lu/microcontroller/tips_tricks/esp_NTP_tips_tricks/index.html
 void setupNtp() {
 
-  settimeofday_cb(ntpTimeIsSet);
-  configTime(MY_TZ, MY_NTP_SERVER);
-
-}
-
-void wifiConnected() {
-
-  Serial.print(F("Connected to WiFi: "));
-  Serial.println(WiFi.localIP().toString());
-
-  httpRestServer.begin();
+  esp_sntp_set_time_sync_notification_cb(ntpTimeIsSet);
+  configTzTime(MY_TZ, MY_NTP_SERVER);
 
 }
 
 void handleNotFound(AsyncWebServerRequest *request) {
 
-  File file = LittleFS.open(F("/www/index.html"), "r");
-  if (!file || !file.available() || !file.isFile()){
+  File file = LittleFS.open("/www/index.html", "r");
+  if (!file || !file.available()){
     Serial.println("Not found");
     String message = F("File Not Found\n\n");
     message += F("URI: ");
@@ -158,6 +173,7 @@ void handleNotFound(AsyncWebServerRequest *request) {
     message += request->methodToString();
     message += "\n";
     request->send(404, F("text/plain"), message);
+    return;
   }
 
   AsyncResponseStream *response = request->beginResponseStream("text/html");
@@ -179,13 +195,5 @@ void handleRSSI(AsyncWebServerRequest *request) {
   message += rssi;
   message += " dB";
   request->send(200, F("text/plain"), message);
-
-}
-
-void wifiDisconnected() {
-  
-  Serial.println(F("WiFi disconnected!"));
-
-  httpRestServer.end();
 
 }

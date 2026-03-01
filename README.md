@@ -1,6 +1,6 @@
 # Irrigation Management
 
-This is an irrigation management system based on the ESP8266 platform.
+This is an irrigation management system based on the ESP32 platform.
 
 Features:
 1. It controls a low rate well pump which pumps water into containers during the day.
@@ -16,24 +16,57 @@ well.
 
 ## Hardware
 
-The firmware is compatible to any [NodeMCU modul](https://www.amazon.de/dp/B06Y1ZPNMS) or
-[Mini module with external antennas](https://www.amazon.de/dp/B0CT9K2XHK).
+The firmware is compatible to any ESP32 Dev Module, e.g. an
+[ESP32-DevKitC](https://www.amazon.de/dp/B071P98VTG) or an ESP32U variant with external antenna.
 
-An MCP23017 (I2C) is used control LEDs and relais, because the system is able to control
-two pumps, six valves and has three LEDs which is in total 16 GPIOs which is more than
-the NodeMCU modul provides.
+The ESP32 has enough GPIOs to directly control LEDs, relays and sensors without a port expander:
+
+| GPIO | Function | Direction |
+|------|----------|-----------|
+| 34 | Water pressure sensor (ADC) | Input |
+| 33 | Irrigation pump relay | Output |
+| 32 | Well pump relay | Output |
+| 25 | Valve 1 relay | Output |
+| 26 | Valve 2 relay | Output |
+| 27 | Valve 3 relay | Output |
+| 14 | Valve 4 relay | Output |
+| 13 | Valve 5 relay | Output |
+| 19 | Water level: empty | Input (pullup) |
+| 18 | Water level: 1 | Input (pullup) |
+| 5 | Water level: 2 | Input (pullup) |
+| 17 | Water level: 3 | Input (pullup) |
+| 16 | Water level: full | Input (pullup) |
+| 21 | LED: WiFi | Output |
+| 23 | LED: Well pump | Output |
+| 22 | LED: Irrigation pump | Output |
 
 For measurement of pressure a [sensor](https://www.amazon.de/dp/B07SYLH59Q) ([sensor values](./readme/sensor-values.xlsx))
-is used connected to the ADC pin.
+is used connected to the ADC pin (GPIO 34). The ESP32 ADC is 12-bit but is set to 10-bit (values 0–1023).
 
 ## Build
 
-This project is meant to be opened in ArduinoIDE. One needs to add libraries:
+This project is meant to be opened in ArduinoIDE.
 
-1. `ESP Async WebServer` (Version 3.7.9)
-1. `ESP Async TCP` (Version 2.0.0)
+### Board settings
+
+- **Board:** `ESP32 Dev Module`
+- **Flash Size:** 4MB
+- **Partition Scheme:** Default 4MB with spiffs
+- **Upload Speed:** 921600
+
+If the ESP32 board package is not yet installed:
+1. Arduino IDE → Preferences → Additional Board Manager URLs:
+   `https://espressif.github.io/arduino-esp32/package_esp32_index.json`
+2. Tools → Board Manager → search "esp32" → install **esp32 by Espressif Systems**
+
+### Required libraries
+
+1. `AsyncTCP`
+1. `ESPAsyncWebServer` (ESP32 version)
 1. `ElegantOTA` (Version 3.1.7, turned to [async mode](https://docs.elegantota.pro/getting-started/async-mode))
 1. `ArduinoJson` (Version 7.4.2)
+
+### Webapp
 
 The webapp included has to be built like this manually:
 
@@ -44,6 +77,8 @@ npm run build
 cd ..
 ```
 
+### Initial upload
+
 Initially, the firmware and the files (webapp and config files) have to be uploaded via USB.
 Once the device is available via HTTP over the air (OTA) updates of the firmware can be done via
 URL `/update`. The configuration can be modified and also the webapp itself can be updated
@@ -51,8 +86,8 @@ via webapp.
 
 Once created initial config files (see section [Configuration files](#configuration-files))
 and the webapp, one can use the
-[Arduino IDE ESP8266 LittleFS Filessystem Uploader Plugin](https://randomnerdtutorials.com/arduino-ide-2-install-esp8266-littlefs/)
-to send all files to your board.
+[Arduino IDE ESP32 LittleFS Filesystem Uploader Plugin](https://randomnerdtutorials.com/arduino-ide-2-install-esp32-littlefs/)
+to send all files to your board (Serial console has to be closed during upload!).
 
 ## Configuration files
 
@@ -94,7 +129,7 @@ Create a file `/data/config.json` and use this as a template:
       }
     },
     "irrigation": {         // irrigation specific config
-      "hysteresis": 1200    // seconds how long to pause once the pump was switch off 
+      "hysteresis": 1200    // seconds how long to pause once the pump was switch off
                             // typically pumps are only allowed to start x times per hour
     }
   },
@@ -112,11 +147,11 @@ Create a file `/data/config.json` and use this as a template:
       "reference": {        // to setup ADC for pressure sensor
         "low": {            // pump water at pressure of e.g. 1 bar into the system (don't use 0 bar for 'low')
           "bar": 1.0,       // the exact pressure one can read from analog sensor
-          "value": 250      // the ADC value shown in the webapp (values from 0 to 1023)
+          "value": 1000     // the ADC value shown in the webapp (values from 0 to 4095 on ESP32)
         },
         "high": {           // pump water at pressure of e.g. 5 bar into the system
           "bar": 5.0,       // the exact pressure one can read from analog sensor
-          "value": 800      // the ADC value shown in the webapp (values from 0 to 1023)
+          "value": 3200     // the ADC value shown in the webapp (values from 0 to 4095 on ESP32)
         }
       }
     }
