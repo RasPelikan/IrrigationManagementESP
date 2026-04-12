@@ -7,7 +7,7 @@ Features:
 1. It controls an irrigation pump (placed in the container) based on the pipes current water pressure and the container's current level of water.
 1. It irrigates by switching valves according to configured irrigation cycles.
 1. Irrigation cycles may be fixed (irrigate the same in every cycle) or rolling (irrigate configured areas beginning were stopped last time).
-1. Valves may also be switch remote by calling a defined URL. So the main devices does not necessarily be connected to all valves.
+1. Valves may also be switch remote by calling a defined URL. So the main devices does not necessarily be connected to all valves (see [client](https://github.com/RasPelikan/IrrigationClientESP)).
 1. Provide a webapp to control the device.
 
 This two pumps setup is needed if your well feels not well any more ;-) - means there is

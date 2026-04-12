@@ -204,22 +204,41 @@ void switchValve(uint8_t index, boolean on) {
 }
 
 void switchRemoteValve(char *url, boolean on) {
+  
+  HTTPClient http;
+  http.begin(url);
+  if (wifiConfig.httpUsername != NULL && wifiConfig.httpPassword != NULL) {
+    http.setAuthorization(wifiConfig.httpUsername, wifiConfig.httpPassword);
+  }
+  int httpCode;
+  if (on) {
+    Serial.println("PUT ");
+    httpCode = http.PUT("");
+  } else {
+    Serial.println("DELETE ");
+    httpCode = http.sendRequest("DELETE");
+  }
+  Serial.println(url);
+  if (httpCode < 0) {
+    setError("Remote valve %s failed: %s", url, http.errorToString(httpCode).c_str());
+  } else if (httpCode < 200 || httpCode >= 300) {
+    setError("Remote valve %s returned HTTP %d", url, httpCode);
+  }
+  http.end();
+
 }
 
 void switchGpioValve(uint8_t gpio, boolean on) {
 
-  uint8_t valveGpio;
-  switch (gpio) {
-    case 1: valveGpio = GPIO_VALVE_1; break;
-    case 2: valveGpio = GPIO_VALVE_2; break;
-    case 3: valveGpio = GPIO_VALVE_3; break;
-    case 4: valveGpio = GPIO_VALVE_4; break;
-    case 5: valveGpio = GPIO_VALVE_5; break;
-    default: valveGpio = 255;
+  if ((gpio != GPIO_VALVE_1)
+      && (gpio != GPIO_VALVE_2)
+      && (gpio != GPIO_VALVE_3)
+      && (gpio != GPIO_VALVE_4)
+      && (gpio != GPIO_VALVE_5)) {
+    return;
   }
-  if (gpio != 255) {
-    digitalWrite(valveGpio, on ? RELAIS_ON : RELAIS_OFF);
-  }
+
+  digitalWrite(gpio, on ? RELAIS_ON : RELAIS_OFF);
 
 }
 
@@ -240,30 +259,43 @@ void addCycleStatus(JsonDocument &doc) {
 
 }
 
+bool applyValveMode(uint8_t index, const String &value) {
+
+  if (value.equals(F("auto")) && (valves[index].mode != MODE_VALVE_AUTO)) {
+    valves[index].mode = MODE_VALVE_AUTO;
+    switchValves();
+    return true;
+  } else if (value.equals(F("off")) && (valves[index].mode != MODE_VALVE_OFF)) {
+    valves[index].mode = MODE_VALVE_OFF;
+    switchValve(index, false);
+    return true;
+  } else if (value.equals(F("on")) && (valves[index].mode != MODE_VALVE_ON)) {
+    valves[index].mode = MODE_VALVE_ON;
+    switchValve(index, true);
+    return true;
+  }
+  return false;
+
+}
+
 void handleValveMode(AsyncWebServerRequest *request) {
 
   request->send(200, F("text/plain"), F(""));
-  if (request->hasParam(MODE_VALVE_PARAM, true)
-      && request->hasParam(INDEX_VALVE_PARAM, true)) {
+  if (!request->hasParam(MODE_VALVE_PARAM, true)) {
+    return;
+  }
+  String value = request->getParam(MODE_VALVE_PARAM, true)->value();
+  bool updated = false;
+  if (request->hasParam(INDEX_VALVE_PARAM, true)) {
     uint8_t index = constrain(request->getParam(INDEX_VALVE_PARAM, true)->value().toInt(), 0, 255);
-    String value = request->getParam(MODE_VALVE_PARAM, true)->value();
-    bool updated = false;
-    if (value.equals(F("auto")) && (valves[index].mode != MODE_VALVE_AUTO)) {
-      valves[index].mode = MODE_VALVE_AUTO;
-      switchValves();
-      updated = true;
-    } else if (value.equals(F("off")) && (valves[index].mode != MODE_VALVE_OFF)) {
-      valves[index].mode = MODE_VALVE_OFF;
-      switchValve(index, false);
-      updated = true;
-    } else if (value.equals(F("on")) && (valves[index].mode != MODE_VALVE_ON)) {
-      valves[index].mode = MODE_VALVE_ON;
-      switchValve(index, true);
-      updated = true;
+    updated = applyValveMode(index, value);
+  } else {
+    for (uint8_t i = 0; i < numberOfValves; ++i) {
+      updated |= applyValveMode(i, value);
     }
-    if (updated) {
-      updateStatusClients(STATUS_UPDATE_CYCLE);
-    }
+  }
+  if (updated) {
+    updateStatusClients(STATUS_UPDATE_CYCLE);
   }
 
 }
