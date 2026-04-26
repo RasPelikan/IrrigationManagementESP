@@ -41,6 +41,10 @@ const Status = ({}) => {
     wellPumpMode: "auto",
   });
 
+  const [ pendingWellPump, setPendingWellPump ] = useState(false);
+  const [ pendingIrrigationPump, setPendingIrrigationPump ] = useState(false);
+  const [ pendingValves, setPendingValves ] = useState<Set<number>>(new Set());
+
   const [ connected, setConnected ] = useState(false);
   const eventSource = useRef<EventSource | undefined>(undefined);
   useEffect(() => {
@@ -92,33 +96,49 @@ const Status = ({}) => {
       if (data['currentDate']) {
         currentDateRef.current = new Date(data['currentDate']).getTime();
       }
+      if (data['wellPumpMode'] !== undefined) setPendingWellPump(false);
+      if (data['irrigationPumpMode'] !== undefined) setPendingIrrigationPump(false);
+      if (data['valves'] !== undefined) { setPendingValves(new Set()); setPendingAllValves(false); }
     };
     eventSource.current.addEventListener('UPDATE', updateEventListener);
     return () => eventSource.current.removeEventListener('UPDATE', updateEventListener)
   }, [ status, setStatus, setCurrentDate, eventSource.current ]);
 
   const setWellPumpMode = (mode: 'on' | 'off' | 'auto') => {
+    setPendingWellPump(true);
     fetch('/api/well-pump', {
       method: 'POST',
       headers: new Headers({ 'Content-Type': 'application/x-www-form-urlencoded' }),
       body: `mode=${mode}`
-    }).catch(error => console.log(error));
+    }).catch(error => { console.log(error); setPendingWellPump(false); });
   };
 
   const setIrrigationPumpMode = (mode: 'off' | 'auto') => {
+    setPendingIrrigationPump(true);
     fetch('/api/irrigation-pump', {
       method: 'POST',
       headers: new Headers({ 'Content-Type': 'application/x-www-form-urlencoded' }),
       body: `mode=${mode}`
-    }).catch(error => console.log(error));
+    }).catch(error => { console.log(error); setPendingIrrigationPump(false); });
   };
 
   const setValveMode = (index: number, mode: 'on' | 'off' | 'auto') => {
+    setPendingValves(prev => new Set(prev).add(index));
     fetch(`/api/irrigation/valve`, {
       method: 'POST',
       headers: new Headers({ 'Content-Type': 'application/x-www-form-urlencoded' }),
       body: `index=${index}&mode=${mode}`
-    }).catch(error => console.log(error));
+    }).catch(error => { console.log(error); setPendingValves(prev => { const next = new Set(prev); next.delete(index); return next; }); });
+  };
+
+  const [ pendingAllValves, setPendingAllValves ] = useState(false);
+  const setAllValvesMode = (mode: 'off' | 'auto') => {
+    setPendingAllValves(true);
+    fetch(`/api/irrigation/valve`, {
+      method: 'POST',
+      headers: new Headers({ 'Content-Type': 'application/x-www-form-urlencoded' }),
+      body: `mode=${mode}`
+    }).catch(error => { console.log(error); setPendingAllValves(false); });
   };
 
   const freeHeap = status.heapAfterSetup === undefined || status.heap == undefined
@@ -243,16 +263,19 @@ const Status = ({}) => {
                       </div>
                       <div>
                         <button
+                            disabled={ pendingWellPump }
                             style={ status.wellPumpMode === 'on' ? { backgroundColor: 'grey', color: 'white' } : undefined }
                             onClick={ () => setWellPumpMode('on') }>
                           1
                         </button>
                         <button
+                            disabled={ pendingWellPump }
                             style={ status.wellPumpMode === 'auto' ? { backgroundColor: 'grey', color: 'white' } : undefined }
                             onClick={ () => setWellPumpMode('auto') }>
                           A
                         </button>
                         <button
+                            disabled={ pendingWellPump }
                             style={ status.wellPumpMode === 'off' ? { backgroundColor: 'grey', color: 'white' } : undefined }
                             onClick={ () => setWellPumpMode('off') }>
                           0
@@ -284,6 +307,7 @@ const Status = ({}) => {
                       </div>
                       <div>
                         <button
+                            disabled={ pendingIrrigationPump }
                             style={ status.irrigationPumpMode === 'auto'
                                 ? { backgroundColor: 'grey', color: 'white' }
                                 : undefined }
@@ -291,6 +315,7 @@ const Status = ({}) => {
                           A
                         </button>
                         <button
+                            disabled={ pendingIrrigationPump }
                             style={ status.irrigationPumpMode === 'off'
                                 ? { backgroundColor: 'grey', color: 'white' }
                                 : undefined }
@@ -303,6 +328,30 @@ const Status = ({}) => {
                 </tr>
                 <tr>
                   <td>Valves:</td>
+                  <td>
+                    <div>
+                      <div>
+                        All
+                      </div>
+                      <div>
+                        <button
+                            disabled={ pendingAllValves }
+                            style={ status.valves?.every(v => v.mode === 'auto') ? { backgroundColor: 'grey', color: 'white' } : undefined }
+                            onClick={ () => setAllValvesMode('auto') }>
+                          A
+                        </button>
+                        <button
+                            disabled={ pendingAllValves }
+                            style={ status.valves?.every(v => v.mode === 'off') ? { backgroundColor: 'grey', color: 'white' } : undefined }
+                            onClick={ () => setAllValvesMode('off') }>
+                          0
+                        </button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td></td>
                   <td>
                     {
                       status.valves?.map((valve, valveIndex) =>
@@ -326,16 +375,19 @@ const Status = ({}) => {
                             </div>
                             <div>
                               <button
+                                  disabled={ pendingValves.has(valveIndex) }
                                   style={ valve.mode === 'on' ? { backgroundColor: 'grey', color: 'white' } : undefined }
                                   onClick={ () => setValveMode(valveIndex, 'on') }>
                                 1
                               </button>
                               <button
+                                  disabled={ pendingValves.has(valveIndex) }
                                   style={ valve.mode === 'auto' ? { backgroundColor: 'grey', color: 'white' } : undefined }
                                   onClick={ () => setValveMode(valveIndex, 'auto') }>
                                 A
                               </button>
                               <button
+                                  disabled={ pendingValves.has(valveIndex) }
                                   style={ valve.mode === 'off' ? { backgroundColor: 'grey', color: 'white' } : undefined }
                                   onClick={ () => setValveMode(valveIndex, 'off') }>
                                 0

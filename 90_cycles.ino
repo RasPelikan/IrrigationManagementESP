@@ -181,14 +181,24 @@ void setupValves() {
 
 void switchValves() {
 
-  // test for all valves to be switched on or off due to cycles
-  bool *valveStatus = new bool[numberOfValves];
+  // test for all valves to be switched on or off due to cycles or manual control
+  bool atLeastOneValveChanged = false;
   for (uint8_t i = 0; i < numberOfValves; ++i) {
-    if (valves[i].mode == VALVE_MODE_AUTO) {
+    if (valves[i].mode == VALVE_MODE_ON) {
+      switchValve(i, true);
+      atLeastOneValveChanged = true;
+    } else if (valves[i].mode == VALVE_MODE_AUTO && (valves[i].active || valves[i].on != valves[i].active)) {
       switchValve(i, valves[i].active);
+      atLeastOneValveChanged = true;
+    } else if (valves[i].mode == VALVE_MODE_OFF && valves[i].on) {
+      switchValve(i, false);
+      atLeastOneValveChanged = true;
     }
   }
-  updateStatusClients(STATUS_UPDATE_CYCLE);
+
+  if (atLeastOneValveChanged) {
+    updateStatusClients(STATUS_UPDATE_CYCLE);
+  }
 
 }
 
@@ -223,6 +233,10 @@ void switchRemoteValve(char *url, boolean on) {
     setError("Remote valve %s failed: %s", url, http.errorToString(httpCode).c_str());
   } else if (httpCode < 200 || httpCode >= 300) {
     setError("Remote valve %s returned HTTP %d", url, httpCode);
+  } else if (error != NULL && strncmp(error, "Remote valve ", 13) == 0) {
+    delete[] error;
+    error = NULL;
+    updateStatusClients(STATUS_UPDATE_ERROR);
   }
   http.end();
 
@@ -259,19 +273,27 @@ void addCycleStatus(JsonDocument &doc) {
 
 }
 
+void addPendingValve(uint8_t index) {
+  uint8_t count = pendingValves[0];
+  if (count < MAX_PENDING_VALVES) {
+    pendingValves[1 + count] = index;
+    pendingValves[0] = count + 1;
+  }
+}
+
 bool applyValveMode(uint8_t index, const String &value) {
 
   if (value.equals(F("auto")) && (valves[index].mode != MODE_VALVE_AUTO)) {
     valves[index].mode = MODE_VALVE_AUTO;
-    switchValves();
+    addPendingValve(index);
     return true;
   } else if (value.equals(F("off")) && (valves[index].mode != MODE_VALVE_OFF)) {
     valves[index].mode = MODE_VALVE_OFF;
-    switchValve(index, false);
+    addPendingValve(index);
     return true;
   } else if (value.equals(F("on")) && (valves[index].mode != MODE_VALVE_ON)) {
     valves[index].mode = MODE_VALVE_ON;
-    switchValve(index, true);
+    addPendingValve(index);
     return true;
   }
   return false;
@@ -294,8 +316,29 @@ void handleValveMode(AsyncWebServerRequest *request) {
       updated |= applyValveMode(i, value);
     }
   }
-  if (updated) {
-    updateStatusClients(STATUS_UPDATE_CYCLE);
+
+}
+
+void handleManualValveChanges() {
+
+  if (pendingValves[0] == 0) {
+    return;
   }
 
+  uint8_t count = pendingValves[0];
+  pendingValves[0] = 0;
+  
+  for (uint8_t i = 0; i < count; ++i) {
+    uint8_t index = pendingValves[1 + i];
+    if (valves[index].mode == VALVE_MODE_ON) {
+      switchValve(index, true);
+    } else if (valves[index].mode == VALVE_MODE_OFF) {
+      switchValve(index, false);
+    } else {
+      switchValve(index, valves[index].active);
+    }
+  }
+
+  updateStatusClients(STATUS_UPDATE_CYCLE);
+  
 }

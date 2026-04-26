@@ -1,8 +1,8 @@
 #define WATERLEVEL_EMPTY 0
-#define WATERLEVEL_1 2
-#define WATERLEVEL_2 35
-#define WATERLEVEL_3 67
-#define WATERLEVEL_4 68
+#define WATERLEVEL_1 20
+#define WATERLEVEL_2 40
+#define WATERLEVEL_3 69
+#define WATERLEVEL_4 80
 #define WATERLEVEL_FULL 100
 
 uint8_t waterLevel = 101; // means print current level on startup
@@ -58,7 +58,6 @@ void updateWaterLevel() {
       Serial.print(WATERLEVEL_1);
       Serial.println(F("%"));
     }
-    /*
   } else if (digitalRead(GPIO_WATERLEVEL_2)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_2) {
       waterStatusHysteresis = irrigationConfig.waterLevelHysteresis;
@@ -85,7 +84,6 @@ void updateWaterLevel() {
       Serial.print(WATERLEVEL_3);
       Serial.println("%");
     }
-    */
   } else if (digitalRead(GPIO_WATERLEVEL_FULL)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_4) {
       waterStatusHysteresis = irrigationConfig.waterLevelHysteresis;
@@ -130,9 +128,10 @@ void addWaterPressureStatus(JsonDocument &doc) {
 
 void updateWaterPressure() {
 
-  int previousPressure = waterPressure;
-  waterPressure = analogRead(GPIO_ADC_PRESSURE);
-  if (abs(previousPressure - waterPressure) > 1) {
+  int newWaterPressure = analogRead(GPIO_ADC_PRESSURE);
+
+  if (abs(newWaterPressure - waterPressure) > 10) {
+    waterPressure = newWaterPressure;
     updateStatusClients(STATUS_UPDATE_WATERPRESSURE);
   }
 

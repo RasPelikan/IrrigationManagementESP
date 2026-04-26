@@ -29,8 +29,8 @@
 #define GPIO_WATERLEVEL_FULL 16
 
 #define GPIO_WIFI_LED 21
-#define GPIO_WELLPUMP_LED 23
-#define GPIO_IRRIGATIONPUMP_LED 22
+#define GPIO_WELLPUMP_LED 22
+#define GPIO_IRRIGATIONPUMP_LED 23
 
 #define RELAIS_ON LOW
 #define RELAIS_OFF HIGH
@@ -58,6 +58,8 @@
 char *error = NULL;
 uint32_t heapAfterSetup = 0;
 bool wrongConfig = true;
+#define MAX_PENDING_VALVES 50
+volatile uint8_t pendingValves[MAX_PENDING_VALVES + 1] = { 0 };  // [0] = count, [1..n] = valve indexes
 
 void setup() {
 
@@ -162,6 +164,9 @@ void loop() {
       }
 
     }
+
+    // switch valves if mode changed via REST API
+    handleManualValveChanges();
 
     // every 30 seconds send update to clients to keep SSE connection alive
     if ((tm_now.tm_sec != lastSecond)
