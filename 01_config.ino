@@ -376,10 +376,13 @@ bool readConfigFile(File configFile) {
 
   JsonArray docCycles = doc["cycles"];
   numberOfCycles = docCycles.size();
+  // allow empty cycles - only using manual control
+  /*
   if (docCycles.isNull() || (numberOfCycles == 0)) {
     setError("Config JSON has no or empty section 'cycles'!");
     return false;
   }
+  */
   cycles = new Cycle[numberOfCycles];
   i = 0;
   for (i = 0; i < numberOfCycles; ++i) {
