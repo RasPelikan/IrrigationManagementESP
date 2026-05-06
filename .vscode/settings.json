@@ -1,0 +1,21 @@
+{
+  "files.watcherExclude": {
+    "**/.libraries/**": true,
+    "**/build/**": true,
+    "**/vendor/**": true,
+    "**/data/www/**": true,
+    "**/webapp/node_modules/**": true,
+    "**/webapp/dist/**": true,
+    "**/.git/**": true
+  },
+  "search.exclude": {
+    "**/.libraries": true,
+    "**/build": true,
+    "**/vendor": true,
+    "**/webapp/node_modules": true
+  },
+  "files.exclude": {
+    "**/.libraries": true,
+    "**/.arduino-cli.yaml": true
+  }
+}

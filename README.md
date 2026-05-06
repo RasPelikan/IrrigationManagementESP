@@ -45,9 +45,66 @@ is used connected to the ADC pin (GPIO 34). The ESP32 ADC is 12-bit but is set t
 
 ## Build
 
-This project is meant to be opened in ArduinoIDE.
+There are two build paths: ArduinoIDE (interactive) and a headless shell-script
+build (`build-firmware.sh`) designed for long-term reproducibility.
 
-### Board settings
+### Headless build (recommended for OTA updates)
+
+The shell-script build pins all libraries via git submodules and the ESP32 core
+via `setup-toolchain.sh`. It does not depend on the ArduinoIDE Library Manager.
+
+```shell
+git submodule update --init --recursive   # only the first time after clone
+./setup-toolchain.sh                       # one-time: installs arduino-cli + ESP32 core
+./build-firmware.sh                        # produces build/IrrigationManagementESP.ino.bin
+./build-firmware.sh --with-webapp          # also rebuilds the webapp
+```
+
+Pinned versions are recorded in [`.versions.txt`](./.versions.txt). The toolchain
+is installed into `~/Library/Arduino15-IrrigationManagementESP/` — outside the
+sketch directory but project-specific (see [Gotchas](#gotchas) for why), so your
+global ArduinoIDE installation is untouched.
+
+#### Cold-storage rebuild
+
+If you need to rebuild years from now and upstream sources are gone:
+
+1. Restore the project from your own clone (the submodule contents are stored
+   inside `.git/modules/` of any existing clone, so any old laptop with the repo
+   has all library code).
+2. Restore the ESP32 core from a tarball you previously created with
+   `./setup-toolchain.sh --snapshot` (saves to `vendor/esp32-core-3.2.1.tar.gz`).
+   Keep that tarball on an external drive or a GitHub release attached to this
+   repo.
+3. Run `./setup-toolchain.sh --from-vendor && ./build-firmware.sh`.
+
+#### Gotchas
+
+ArduinoIDE 2.x scans the sketch directory **recursively, including hidden
+folders (those starting with `.`)** and validates every source file name
+against Arduino sketch naming rules (`[A-Za-z0-9_.-]`, max 63 chars). A single
+illegal name anywhere in the tree prevents the sketch from opening. The
+project is structured around this:
+
+- **Toolchain (`~/Library/Arduino15-IrrigationManagementESP/`)** lives outside
+  the sketch directory. The ESP8266 BearSSL SDK ships e.g. `chain-ec+rsa.h`
+  and the GCC toolchain has binaries named `c++`, `g++` — putting the core
+  inside the sketch tree breaks the IDE.
+- **Library submodules (`.libraries/`)** are dot-prefixed on purpose. Without
+  the dot, `arduino-cli` automatically adds `<sketch>/libraries/` as a library
+  search path, which collides with the user's global Library Manager
+  installations and produces ambiguous-include errors. The dot also keeps the
+  IDE's Explorer view uncluttered.
+- **`build/`** is gitignored and ignored by the IDE.
+
+If you ever see ArduinoIDE refuse to open the sketch with an error about a
+file name, the first thing to check is `find . -name '*[+!@#$%^&]*'` and
+`find . -name '*' | awk -F/ '{ if (length($NF) > 63) print }'` to locate the
+offending file.
+
+### ArduinoIDE build (interactive)
+
+#### Board settings
 
 - **Board:** `ESP32 Dev Module`
 - **Flash Size:** 4MB
@@ -59,7 +116,7 @@ If the ESP32 board package is not yet installed:
    `https://espressif.github.io/arduino-esp32/package_esp32_index.json`
 2. Tools → Board Manager → search "esp32" → install **esp32 by Espressif Systems**
 
-### Required libraries
+#### Required libraries (Library Manager)
 
 1. `AsyncTCP`
 1. `ESPAsyncWebServer` (ESP32 version)
@@ -245,6 +302,11 @@ Hints:
 
 ### Webapp
 
-1. Use the URL `/webapp-upload` to load the upload form.
-1. Build the webapp by running `npm run build`
+1. Use the URL `/webapp-upload` to upload a new webapp.
+1. Build the webapp by running `npm run build`:
+   ```shell
+   cd webapp
+   npm install
+   npm run build
 1. All files of the webapp have to be added for upload (`data/www/index.html` and all files in `data/www/assets`)!
+   Just add all files of all subdirectories into the upload form.

@@ -1,0 +1,16 @@
+# Pinned versions for reproducible firmware builds.
+# Snapshot of the working set on 2026-05-01.
+# These are the versions setup-toolchain.sh installs and the .libraries/ submodules track.
+
+# --- Toolchain ---
+arduino-cli         1.1.1     # any 1.x should work; this is what was tested
+esp32:esp32         3.2.1     # ESP32 Arduino core (includes xtensa-esp32-elf toolchain)
+
+# --- Libraries (see .libraries/ submodules) ---
+ArduinoJson         v7.4.2          bblanchon/ArduinoJson           733bc4ee82630c88c0a619a883cd3a206efae977
+AsyncTCP            v3.4.10         ESP32Async/AsyncTCP             0f5b54654a0a1280e1f19685aa7bc35865008a85
+ESPAsyncWebServer   v3.10.0         ESP32Async/ESPAsyncWebServer    9a7f80c07435a63d82a2d52d4d73d6e8db485d61
+ElegantOTA          3.1.7           ayushsharma82/ElegantOTA        c111dc64f670ce1841e0b822b918b4ceec80d625
+
+# --- Build flags ---
+ELEGANTOTA_USE_ASYNC_WEBSERVER=1    # required for ElegantOTA async mode
