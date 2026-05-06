@@ -9,6 +9,7 @@ bool *activeCycles = NULL;                 // tracks which cycle is active
 void setupIrrigationEndpoints() {
 
   httpRestServer.on("/api/irrigation/valve", HTTP_POST, handleValveMode);
+  httpRestServer.on("/api/irrigation/schedule", HTTP_GET, handleGetSchedule);
 
 }
 
@@ -253,6 +254,148 @@ void switchGpioValve(uint8_t gpio, boolean on) {
   }
 
   digitalWrite(gpio, on ? RELAIS_ON : RELAIS_OFF);
+
+}
+
+void handleGetSchedule(AsyncWebServerRequest *request) {
+
+  JsonDocument doc;
+  JsonArray cyclesArray = doc["cycles"].to<JsonArray>();
+
+  // copy irrigatedPeriod per area for simulation without modifying real state
+  uint16_t *simIrrigatedPeriod = new uint16_t[numberOfAreas];
+  for (uint8_t i = 0; i < numberOfAreas; ++i) {
+    simIrrigatedPeriod[i] = areas[i].irrigatedPeriod;
+  }
+
+  // per-cycle sequence start times: layout [cycle0_seq0, cycle0_seq1, ..., cycle1_seq0, ...]
+  // calculate total number of sequence slots across all cycles
+  uint16_t totalCycleSeqs = 0;
+  for (uint8_t c = 0; c < numberOfCycles; ++c) {
+    totalCycleSeqs += cycles[c].area->sizeOfSequence;
+  }
+  int16_t *seqStartTimes = new int16_t[totalCycleSeqs];
+  for (uint16_t i = 0; i < totalCycleSeqs; ++i) {
+    seqStartTimes[i] = -1;
+  }
+
+  // simulate 24h forward to determine cycle activity and sequence start times
+  bool *simActiveCycles = new bool[numberOfCycles];
+  for (uint8_t i = 0; i < numberOfCycles; ++i) {
+    simActiveCycles[i] = activeCycles[i];
+  }
+
+  for (uint8_t currentHour = 0; currentHour < 24; ++currentHour) {
+    for (uint16_t currentMinute = 0; currentMinute < 60; ++currentMinute) {
+
+      uint16_t projectedMinute = currentMinute + tm_now.tm_min + 1;
+      uint16_t currentTime;
+      if (projectedMinute < 60) {
+        currentTime = (projectedMinute + (currentHour + tm_now.tm_hour) * 100) % 2400;
+      } else {
+        currentTime = ((projectedMinute % 60) + (currentHour + tm_now.tm_hour + 1) * 100) % 2400;
+      }
+
+      for (uint8_t cycleIndex = 0; cycleIndex < numberOfCycles; ++cycleIndex) {
+        Cycle *cycle = &cycles[cycleIndex];
+
+        if (cycle->end == currentTime && simActiveCycles[cycleIndex]) {
+          simActiveCycles[cycleIndex] = false;
+          for (uint8_t a = 0; a < numberOfAreas; ++a) {
+            if (cycle->area == &areas[a] && areas[a].resetOnActivation) {
+              simIrrigatedPeriod[a] = 0;
+            }
+          }
+        }
+
+        if (cycle->start == currentTime) {
+          simActiveCycles[cycleIndex] = true;
+        }
+      }
+
+      // advance irrigatedPeriod for active cycles and track sequence starts per cycle
+      for (uint8_t cycleIndex = 0; cycleIndex < numberOfCycles; ++cycleIndex) {
+        if (!simActiveCycles[cycleIndex]) continue;
+
+        Area *area = cycles[cycleIndex].area;
+        uint8_t areaIndex = 0;
+        for (uint8_t a = 0; a < numberOfAreas; ++a) {
+          if (&areas[a] == area) { areaIndex = a; break; }
+        }
+
+        // calculate offset into seqStartTimes for this cycle
+        uint16_t cycleSeqOffset = 0;
+        for (uint8_t c = 0; c < cycleIndex; ++c) {
+          cycleSeqOffset += cycles[c].area->sizeOfSequence;
+        }
+
+        // determine which sequence is active at current irrigatedPeriod
+        uint16_t simPeriod = simIrrigatedPeriod[areaIndex] % area->totalTimeOfSequences;
+        uint16_t calculatedDuration = 0;
+        for (uint8_t s = 0; s < area->sizeOfSequence; ++s) {
+          if ((calculatedDuration + area->sequence[s].duration) <= simPeriod) {
+            calculatedDuration += area->sequence[s].duration;
+          } else {
+            if (seqStartTimes[cycleSeqOffset + s] == -1) {
+              seqStartTimes[cycleSeqOffset + s] = currentTime;
+            }
+            break;
+          }
+        }
+
+        ++(simIrrigatedPeriod[areaIndex]);
+      }
+
+    }
+  }
+
+  // build JSON response
+  uint16_t cycleSeqOffset = 0;
+  for (uint8_t c = 0; c < numberOfCycles; ++c) {
+    Area *area = cycles[c].area;
+
+    JsonObject cycleObj = cyclesArray.add<JsonObject>();
+    char startBuf[5], endBuf[5];
+    snprintf(startBuf, sizeof startBuf, "%04d", cycles[c].start);
+    snprintf(endBuf, sizeof endBuf, "%04d", cycles[c].end);
+    cycleObj["start"] = startBuf;
+    cycleObj["end"] = endBuf;
+    cycleObj["active"] = activeCycles[c];
+
+    JsonObject areaObj = cycleObj["area"].to<JsonObject>();
+    areaObj["name"] = area->name;
+    areaObj["reset"] = area->resetOnActivation;
+    areaObj["irrigatedPeriod"] = area->irrigatedPeriod;
+    areaObj["totalTime"] = area->totalTimeOfSequences;
+
+    JsonArray seqArray = areaObj["sequences"].to<JsonArray>();
+    for (uint8_t s = 0; s < area->sizeOfSequence; ++s) {
+      Sequence *seq = &area->sequence[s];
+      JsonObject seqObj = seqArray.add<JsonObject>();
+      seqObj["duration"] = seq->duration;
+
+      if (seqStartTimes[cycleSeqOffset + s] >= 0) {
+        char timeBuf[5];
+        snprintf(timeBuf, sizeof timeBuf, "%04d", seqStartTimes[cycleSeqOffset + s]);
+        seqObj["startTime"] = timeBuf;
+      }
+
+      JsonArray valvesArr = seqObj["valves"].to<JsonArray>();
+      for (uint8_t v = 0; v < seq->numberOfValves; ++v) {
+        valvesArr.add(seq->valves[v]->id);
+      }
+    }
+
+    cycleSeqOffset += area->sizeOfSequence;
+  }
+
+  delete[] simIrrigatedPeriod;
+  delete[] seqStartTimes;
+  delete[] simActiveCycles;
+
+  AsyncResponseStream *response = request->beginResponseStream("application/json");
+  serializeJson(doc, *response);
+  request->send(response);
 
 }
 
