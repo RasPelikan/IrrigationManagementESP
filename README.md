@@ -141,10 +141,59 @@ Once the device is available via HTTP over the air (OTA) updates of the firmware
 URL `/update`. The configuration can be modified and also the webapp itself can be updated
 via webapp.
 
+#### Headless USB flash (recommended)
+
+After running `./build-firmware.sh --with-webapp` and creating `data/credentials.json`
+and `data/config.json` (see [Configuration files](#configuration-files)), provision a
+fresh ESP32 over USB with `flash-new-esp.sh`:
+
+```shell
+./flash-new-esp.sh                          # auto-detects the serial port
+./flash-new-esp.sh --port /dev/cu.usbserial-0001
+./flash-new-esp.sh --erase                  # wipe the whole flash first
+./flash-new-esp.sh --skip-fs                # firmware only
+./flash-new-esp.sh --skip-firmware          # LittleFS only
+```
+
+The script does both steps in a single `esptool` invocation, flashing at the
+standard ESP32 offsets (matches what the Arduino IDE writes over USB):
+1. `bootloader.bin` at `0x1000`, `partitions.bin` at `0x8000`, `boot_app0.bin`
+   at `0xe000`, app `.ino.bin` at `0x10000`.
+2. LittleFS image built from `data/` recursively with `mklittlefs`, written to
+   the LittleFS ("spiffs") partition.
+
+The LittleFS partition offset and size are read at runtime from the ESP32 core's
+`default.csv`, so a future core upgrade that changes the partition layout is
+picked up automatically. Both `esptool` and `mklittlefs` come from the ESP32
+core installed by `setup-toolchain.sh` — no extra tools needed.
+
+After provisioning, all subsequent updates go over HTTP: firmware via
+ElegantOTA at `/update`, webapp via `/webapp-upload`, config via the webapp.
+
+#### Alternative: Arduino IDE LittleFS plugin
+
 Once created initial config files (see section [Configuration files](#configuration-files))
 and the webapp, one can use the
 [Arduino IDE ESP32 LittleFS Filesystem Uploader Plugin](https://randomnerdtutorials.com/arduino-ide-2-install-esp32-littlefs/)
 to send all files to your board (Serial console has to be closed during upload!).
+
+### Serial monitor
+
+To watch the ESP32's serial output in the terminal — analogous to `tail -f`
+for the device — use `monitor-esp.sh`:
+
+```shell
+./monitor-esp.sh                                # auto-detect port, 115200 baud
+./monitor-esp.sh --port /dev/cu.usbserial-0001
+./monitor-esp.sh --baud 74880                   # ESP boot ROM speed
+./monitor-esp.sh --once                         # don't auto-reconnect on disconnect
+```
+
+The script auto-detects the USB serial port and reconnects automatically when
+the device comes back (e.g. after a re-flash or a power cycle). It prefers
+[`tio`](https://github.com/tio/tio) if installed (`brew install tio`, cleaner
+UX, exit with Ctrl-T Q), and falls back to the system `screen` otherwise
+(exit with Ctrl-A K, then y). Ctrl-C always quits the outer loop.
 
 ## Configuration files
 
