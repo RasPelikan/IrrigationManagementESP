@@ -1,13 +1,13 @@
 # Irrigation Management
 
-This is an irrigation management system based on the ESP8266 platform.
+This is an irrigation management system based on the ESP32 platform.
 
 Features:
 1. It controls a low rate well pump which pumps water into containers during the day.
 1. It controls an irrigation pump (placed in the container) based on the pipes current water pressure and the container's current level of water.
 1. It irrigates by switching valves according to configured irrigation cycles.
 1. Irrigation cycles may be fixed (irrigate the same in every cycle) or rolling (irrigate configured areas beginning were stopped last time).
-1. Valves may also be switch remote by calling a defined URL. So the main devices does not necessarily be connected to all valves.
+1. Valves may also be switch remote by calling a defined URL. So the main devices does not necessarily be connected to all valves (see [client](https://github.com/RasPelikan/IrrigationClientESP)).
 1. Provide a webapp to control the device.
 
 This two pumps setup is needed if your well feels not well any more ;-) - means there is
@@ -16,24 +16,114 @@ well.
 
 ## Hardware
 
-The firmware is compatible to any [NodeMCU modul](https://www.amazon.de/dp/B06Y1ZPNMS) or
-[Mini module with external antennas](https://www.amazon.de/dp/B0CT9K2XHK).
+The firmware is compatible to any ESP32 Dev Module, e.g. an
+[ESP32-DevKitC](https://www.amazon.de/dp/B071P98VTG) or an ESP32U variant with external antenna.
 
-An MCP23017 (I2C) is used control LEDs and relais, because the system is able to control
-two pumps, six valves and has three LEDs which is in total 16 GPIOs which is more than
-the NodeMCU modul provides.
+The ESP32 has enough GPIOs to directly control LEDs, relays and sensors without a port expander:
+
+| GPIO | Function | Direction |
+|------|----------|-----------|
+| 34 | Water pressure sensor (ADC) | Input |
+| 33 | Irrigation pump relay | Output |
+| 32 | Well pump relay | Output |
+| 25 | Valve 1 relay | Output |
+| 26 | Valve 2 relay | Output |
+| 27 | Valve 3 relay | Output |
+| 14 | Valve 4 relay | Output |
+| 13 | Valve 5 relay | Output |
+| 19 | Water level: empty | Input (pullup) |
+| 18 | Water level: 1 | Input (pullup) |
+| 5 | Water level: 2 | Input (pullup) |
+| 17 | Water level: 3 | Input (pullup) |
+| 16 | Water level: full | Input (pullup) |
+| 21 | LED: WiFi | Output |
+| 23 | LED: Well pump | Output |
+| 22 | LED: Irrigation pump | Output |
 
 For measurement of pressure a [sensor](https://www.amazon.de/dp/B07SYLH59Q) ([sensor values](./readme/sensor-values.xlsx))
-is used connected to the ADC pin.
+is used connected to the ADC pin (GPIO 34). The ESP32 ADC is 12-bit but is set to 10-bit (values 0–1023).
 
 ## Build
 
-This project is meant to be opened in ArduinoIDE. One needs to add libraries:
+There are two build paths: ArduinoIDE (interactive) and a headless shell-script
+build (`build-firmware.sh`) designed for long-term reproducibility.
 
-1. `ESP Async WebServer` (Version 3.7.9)
-1. `ESP Async TCP` (Version 2.0.0)
+### Headless build (recommended for OTA updates)
+
+The shell-script build pins all libraries via git submodules and the ESP32 core
+via `setup-toolchain.sh`. It does not depend on the ArduinoIDE Library Manager.
+
+```shell
+git submodule update --init --recursive   # only the first time after clone
+./setup-toolchain.sh                       # one-time: installs arduino-cli + ESP32 core
+./build-firmware.sh                        # produces build/IrrigationManagementESP.ino.bin
+./build-firmware.sh --with-webapp          # also rebuilds the webapp
+```
+
+Pinned versions are recorded in [`.versions.txt`](./.versions.txt). The toolchain
+is installed into `~/Library/Arduino15-IrrigationManagementESP/` — outside the
+sketch directory but project-specific (see [Gotchas](#gotchas) for why), so your
+global ArduinoIDE installation is untouched.
+
+#### Cold-storage rebuild
+
+If you need to rebuild years from now and upstream sources are gone:
+
+1. Restore the project from your own clone (the submodule contents are stored
+   inside `.git/modules/` of any existing clone, so any old laptop with the repo
+   has all library code).
+2. Restore the ESP32 core from a tarball you previously created with
+   `./setup-toolchain.sh --snapshot` (saves to `vendor/esp32-core-3.2.1.tar.gz`).
+   Keep that tarball on an external drive or a GitHub release attached to this
+   repo.
+3. Run `./setup-toolchain.sh --from-vendor && ./build-firmware.sh`.
+
+#### Gotchas
+
+ArduinoIDE 2.x scans the sketch directory **recursively, including hidden
+folders (those starting with `.`)** and validates every source file name
+against Arduino sketch naming rules (`[A-Za-z0-9_.-]`, max 63 chars). A single
+illegal name anywhere in the tree prevents the sketch from opening. The
+project is structured around this:
+
+- **Toolchain (`~/Library/Arduino15-IrrigationManagementESP/`)** lives outside
+  the sketch directory. The ESP8266 BearSSL SDK ships e.g. `chain-ec+rsa.h`
+  and the GCC toolchain has binaries named `c++`, `g++` — putting the core
+  inside the sketch tree breaks the IDE.
+- **Library submodules (`.libraries/`)** are dot-prefixed on purpose. Without
+  the dot, `arduino-cli` automatically adds `<sketch>/libraries/` as a library
+  search path, which collides with the user's global Library Manager
+  installations and produces ambiguous-include errors. The dot also keeps the
+  IDE's Explorer view uncluttered.
+- **`build/`** is gitignored and ignored by the IDE.
+
+If you ever see ArduinoIDE refuse to open the sketch with an error about a
+file name, the first thing to check is `find . -name '*[+!@#$%^&]*'` and
+`find . -name '*' | awk -F/ '{ if (length($NF) > 63) print }'` to locate the
+offending file.
+
+### ArduinoIDE build (interactive)
+
+#### Board settings
+
+- **Board:** `ESP32 Dev Module`
+- **Flash Size:** 4MB
+- **Partition Scheme:** Default 4MB with spiffs
+- **Upload Speed:** 921600
+
+If the ESP32 board package is not yet installed:
+1. Arduino IDE → Preferences → Additional Board Manager URLs:
+   `https://espressif.github.io/arduino-esp32/package_esp32_index.json`
+2. Tools → Board Manager → search "esp32" → install **esp32 by Espressif Systems**
+
+#### Required libraries (Library Manager)
+
+1. `AsyncTCP`
+1. `ESPAsyncWebServer` (ESP32 version)
 1. `ElegantOTA` (Version 3.1.7, turned to [async mode](https://docs.elegantota.pro/getting-started/async-mode))
 1. `ArduinoJson` (Version 7.4.2)
+
+### Webapp
 
 The webapp included has to be built like this manually:
 
@@ -44,15 +134,66 @@ npm run build
 cd ..
 ```
 
+### Initial upload
+
 Initially, the firmware and the files (webapp and config files) have to be uploaded via USB.
 Once the device is available via HTTP over the air (OTA) updates of the firmware can be done via
 URL `/update`. The configuration can be modified and also the webapp itself can be updated
 via webapp.
 
+#### Headless USB flash (recommended)
+
+After running `./build-firmware.sh --with-webapp` and creating `data/credentials.json`
+and `data/config.json` (see [Configuration files](#configuration-files)), provision a
+fresh ESP32 over USB with `flash-new-esp.sh`:
+
+```shell
+./flash-new-esp.sh                          # auto-detects the serial port
+./flash-new-esp.sh --port /dev/cu.usbserial-0001
+./flash-new-esp.sh --erase                  # wipe the whole flash first
+./flash-new-esp.sh --skip-fs                # firmware only
+./flash-new-esp.sh --skip-firmware          # LittleFS only
+```
+
+The script does both steps in a single `esptool` invocation, flashing at the
+standard ESP32 offsets (matches what the Arduino IDE writes over USB):
+1. `bootloader.bin` at `0x1000`, `partitions.bin` at `0x8000`, `boot_app0.bin`
+   at `0xe000`, app `.ino.bin` at `0x10000`.
+2. LittleFS image built from `data/` recursively with `mklittlefs`, written to
+   the LittleFS ("spiffs") partition.
+
+The LittleFS partition offset and size are read at runtime from the ESP32 core's
+`default.csv`, so a future core upgrade that changes the partition layout is
+picked up automatically. Both `esptool` and `mklittlefs` come from the ESP32
+core installed by `setup-toolchain.sh` — no extra tools needed.
+
+After provisioning, all subsequent updates go over HTTP: firmware via
+ElegantOTA at `/update`, webapp via `/webapp-upload`, config via the webapp.
+
+#### Alternative: Arduino IDE LittleFS plugin
+
 Once created initial config files (see section [Configuration files](#configuration-files))
 and the webapp, one can use the
-[Arduino IDE ESP8266 LittleFS Filessystem Uploader Plugin](https://randomnerdtutorials.com/arduino-ide-2-install-esp8266-littlefs/)
-to send all files to your board.
+[Arduino IDE ESP32 LittleFS Filesystem Uploader Plugin](https://randomnerdtutorials.com/arduino-ide-2-install-esp32-littlefs/)
+to send all files to your board (Serial console has to be closed during upload!).
+
+### Serial monitor
+
+To watch the ESP32's serial output in the terminal — analogous to `tail -f`
+for the device — use `monitor-esp.sh`:
+
+```shell
+./monitor-esp.sh                                # auto-detect port, 115200 baud
+./monitor-esp.sh --port /dev/cu.usbserial-0001
+./monitor-esp.sh --baud 74880                   # ESP boot ROM speed
+./monitor-esp.sh --once                         # don't auto-reconnect on disconnect
+```
+
+The script auto-detects the USB serial port and reconnects automatically when
+the device comes back (e.g. after a re-flash or a power cycle). It prefers
+[`tio`](https://github.com/tio/tio) if installed (`brew install tio`, cleaner
+UX, exit with Ctrl-T Q), and falls back to the system `screen` otherwise
+(exit with Ctrl-A K, then y). Ctrl-C always quits the outer loop.
 
 ## Configuration files
 
@@ -94,7 +235,7 @@ Create a file `/data/config.json` and use this as a template:
       }
     },
     "irrigation": {         // irrigation specific config
-      "hysteresis": 1200    // seconds how long to pause once the pump was switch off 
+      "hysteresis": 1200    // seconds how long to pause once the pump was switch off
                             // typically pumps are only allowed to start x times per hour
     }
   },
@@ -112,11 +253,11 @@ Create a file `/data/config.json` and use this as a template:
       "reference": {        // to setup ADC for pressure sensor
         "low": {            // pump water at pressure of e.g. 1 bar into the system (don't use 0 bar for 'low')
           "bar": 1.0,       // the exact pressure one can read from analog sensor
-          "value": 250      // the ADC value shown in the webapp (values from 0 to 1023)
+          "value": 1000     // the ADC value shown in the webapp (values from 0 to 4095 on ESP32)
         },
         "high": {           // pump water at pressure of e.g. 5 bar into the system
           "bar": 5.0,       // the exact pressure one can read from analog sensor
-          "value": 800      // the ADC value shown in the webapp (values from 0 to 1023)
+          "value": 3200     // the ADC value shown in the webapp (values from 0 to 4095 on ESP32)
         }
       }
     }
@@ -210,6 +351,11 @@ Hints:
 
 ### Webapp
 
-1. Use the URL `/webapp-upload` to load the upload form.
-1. Build the webapp by running `npm run build`
+1. Use the URL `/webapp-upload` to upload a new webapp.
+1. Build the webapp by running `npm run build`:
+   ```shell
+   cd webapp
+   npm install
+   npm run build
 1. All files of the webapp have to be added for upload (`data/www/index.html` and all files in `data/www/assets`)!
+   Just add all files of all subdirectories into the upload form.

@@ -1,4 +1,5 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLocation } from "preact-iso";
 import { AppContext } from "../../index";
 import "./style.css";
 
@@ -25,8 +26,27 @@ interface ImStatus {
   valves?: Valve[];
 }
 
+interface ScheduleSequence {
+  duration: number;
+  startTime?: string;
+  valves: string[];
+}
+
+interface ScheduleCycle {
+  start: string;
+  end: string;
+  active: boolean;
+  area: {
+    name: string;
+    sequences: ScheduleSequence[];
+  };
+}
+
+const formatTime = (time: string) => time.substring(0, 2) + ':' + time.substring(2);
+
 const Status = ({}) => {
   const { setPageTitle } = useContext(AppContext);
+  const { route } = useLocation();
   useLayoutEffect(() => {
     setPageTitle('Status');
   });
@@ -41,84 +61,139 @@ const Status = ({}) => {
     wellPumpMode: "auto",
   });
 
+  const [ pendingWellPump, setPendingWellPump ] = useState(false);
+  const [ pendingIrrigationPump, setPendingIrrigationPump ] = useState(false);
+  const [ pendingValves, setPendingValves ] = useState<Set<number>>(new Set());
+
   const [ connected, setConnected ] = useState(false);
   const eventSource = useRef<EventSource | undefined>(undefined);
   useEffect(() => {
-    eventSource.current = new EventSource('/api/status-events');
-    eventSource.current.onopen = () => {
-      console.log("Events Connected");
-      setConnected(true);
+    let cancelled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const connect = () => {
+      if (cancelled) return;
+      const es = new EventSource('/api/status-events');
+      eventSource.current = es;
+
+      es.onopen = () => {
+        console.log("Events Connected");
+        setConnected(true);
+      };
+      es.onerror = () => {
+        if (es.readyState !== EventSource.OPEN) {
+          console.log("Events Disconnected");
+          setConnected(false);
+          es.close();
+          if (eventSource.current === es) eventSource.current = undefined;
+          if (!cancelled && reconnectTimer === undefined) {
+            reconnectTimer = setTimeout(() => { reconnectTimer = undefined; connect(); }, 2000);
+          }
+        } else {
+          console.error("Event Source error");
+        }
+      };
+      es.addEventListener('INIT', event => {
+        const data = JSON.parse((event as MessageEvent).data);
+        setStatus(data);
+        if (data['currentDate']) {
+          currentDateRef.current = new Date(data['currentDate']).getTime();
+        }
+      });
+      es.addEventListener('UPDATE', event => {
+        const data = JSON.parse((event as MessageEvent).data);
+        setStatus(prev => ({ ...prev, ...data }));
+        if (data['currentDate']) {
+          currentDateRef.current = new Date(data['currentDate']).getTime();
+        }
+        if (data['wellPumpMode'] !== undefined) setPendingWellPump(false);
+        if (data['irrigationPumpMode'] !== undefined) setPendingIrrigationPump(false);
+        if (data['valves'] !== undefined) { setPendingValves(new Set()); setPendingAllValves(false); }
+      });
     };
-    eventSource.current.onerror = event => {
-      // @ts-ignore
-      if (event.target.readyState != EventSource.OPEN) {
-        console.log("Events Disconnected");
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      const es = eventSource.current;
+      if (!es || es.readyState !== EventSource.OPEN) {
+        if (es) es.close();
+        eventSource.current = undefined;
+        if (reconnectTimer !== undefined) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = undefined;
+        }
         setConnected(false);
-        setTimeout(() => eventSource.current = new EventSource('/api/status-events'), 2000);
-      } else {
-        console.error("Event Source error:", event);
+        connect();
       }
     };
-    eventSource.current.addEventListener('INIT',  event => {
-      const data = JSON.parse(event.data);
-      setStatus(data);
-      if (data['currentDate']) {
-        currentDateRef.current = new Date(data['currentDate']).getTime();
-      }
-    });
+
+    connect();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     timerRef.current = setInterval(() => {
       if (currentDateRef.current === 0) return;
       currentDateRef.current += 1000;
       setCurrentDate(new Date(currentDateRef.current));
     }, 1000);
     return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
       if (timerRef.current !== -1) {
         clearInterval(timerRef.current);
       }
       setConnected(false);
       setCurrentDate(undefined);
       setStatus(undefined);
-      eventSource.current.close();
+      if (eventSource.current) eventSource.current.close();
+      eventSource.current = undefined;
     }
-  }, [ setConnected, setCurrentDate, setStatus, timerRef ]);
-
-  useEffect(() => {
-    const updateEventListener = (event: MessageEvent) => {
-      const data = JSON.parse(event.data);
-      setStatus({
-        ...status,
-        ...data
-      });
-      if (data['currentDate']) {
-        currentDateRef.current = new Date(data['currentDate']).getTime();
-      }
-    };
-    eventSource.current.addEventListener('UPDATE', updateEventListener);
-    return () => eventSource.current.removeEventListener('UPDATE', updateEventListener)
-  }, [ status, setStatus, setCurrentDate, eventSource.current ]);
+  }, []);
 
   const setWellPumpMode = (mode: 'on' | 'off' | 'auto') => {
+    setPendingWellPump(true);
     fetch('/api/well-pump', {
       method: 'POST',
       headers: new Headers({ 'Content-Type': 'application/x-www-form-urlencoded' }),
       body: `mode=${mode}`
-    }).catch(error => console.log(error));
+    }).catch(error => { console.log(error); setPendingWellPump(false); });
   };
 
   const setIrrigationPumpMode = (mode: 'off' | 'auto') => {
+    setPendingIrrigationPump(true);
     fetch('/api/irrigation-pump', {
       method: 'POST',
       headers: new Headers({ 'Content-Type': 'application/x-www-form-urlencoded' }),
       body: `mode=${mode}`
-    }).catch(error => console.log(error));
+    }).catch(error => { console.log(error); setPendingIrrigationPump(false); });
   };
 
   const setValveMode = (index: number, mode: 'on' | 'off' | 'auto') => {
+    setPendingValves(prev => new Set(prev).add(index));
     fetch(`/api/irrigation/valve`, {
       method: 'POST',
       headers: new Headers({ 'Content-Type': 'application/x-www-form-urlencoded' }),
       body: `index=${index}&mode=${mode}`
-    }).catch(error => console.log(error));
+    }).catch(error => { console.log(error); setPendingValves(prev => { const next = new Set(prev); next.delete(index); return next; }); });
+  };
+
+  const [ scheduleCycles, setScheduleCycles ] = useState<ScheduleCycle[]>([]);
+  useEffect(() => {
+    if (!connected) return;
+    fetch('/api/irrigation/schedule')
+        .then(res => res.json())
+        .then(data => setScheduleCycles(data.cycles || []))
+        .catch(() => {});
+  }, [ connected ]);
+
+  const [ pendingAllValves, setPendingAllValves ] = useState(false);
+  const setAllValvesMode = (mode: 'off' | 'auto') => {
+    setPendingAllValves(true);
+    fetch(`/api/irrigation/valve`, {
+      method: 'POST',
+      headers: new Headers({ 'Content-Type': 'application/x-www-form-urlencoded' }),
+      body: `mode=${mode}`
+    }).catch(error => { console.log(error); setPendingAllValves(false); });
   };
 
   const freeHeap = status.heapAfterSetup === undefined || status.heap == undefined
@@ -243,16 +318,19 @@ const Status = ({}) => {
                       </div>
                       <div>
                         <button
+                            disabled={ pendingWellPump }
                             style={ status.wellPumpMode === 'on' ? { backgroundColor: 'grey', color: 'white' } : undefined }
                             onClick={ () => setWellPumpMode('on') }>
                           1
                         </button>
                         <button
+                            disabled={ pendingWellPump }
                             style={ status.wellPumpMode === 'auto' ? { backgroundColor: 'grey', color: 'white' } : undefined }
                             onClick={ () => setWellPumpMode('auto') }>
                           A
                         </button>
                         <button
+                            disabled={ pendingWellPump }
                             style={ status.wellPumpMode === 'off' ? { backgroundColor: 'grey', color: 'white' } : undefined }
                             onClick={ () => setWellPumpMode('off') }>
                           0
@@ -284,6 +362,7 @@ const Status = ({}) => {
                       </div>
                       <div>
                         <button
+                            disabled={ pendingIrrigationPump }
                             style={ status.irrigationPumpMode === 'auto'
                                 ? { backgroundColor: 'grey', color: 'white' }
                                 : undefined }
@@ -291,6 +370,7 @@ const Status = ({}) => {
                           A
                         </button>
                         <button
+                            disabled={ pendingIrrigationPump }
                             style={ status.irrigationPumpMode === 'off'
                                 ? { backgroundColor: 'grey', color: 'white' }
                                 : undefined }
@@ -302,7 +382,72 @@ const Status = ({}) => {
                   </td>
                 </tr>
                 <tr>
+                  <td style={ { verticalAlign: 'top' } }>
+                    <a href="#" onClick={ (e: Event) => { e.preventDefault(); route('/schedule'); } }
+                       style={ { color: 'inherit' } }>
+                      Cycles:
+                    </a>
+                  </td>
+                  <td>
+                    {
+                      (() => {
+                        const activeCycles = scheduleCycles.filter(c => c.active);
+                        if (activeCycles.length > 0) {
+                          return activeCycles.map((cycle, i) => {
+                            const activeSeq = cycle.area.sequences.find(s => s.startTime !== undefined);
+                            return (
+                                <div key={i}>
+                                  <div>
+                                    <div className="led-off led-blinking-green"></div>
+                                    &nbsp;
+                                    {cycle.area.name}
+                                    {activeSeq ? ` (${activeSeq.valves.join(', ')})` : ''}
+                                  </div>
+                                </div>);
+                          });
+                        }
+                        const nextCycle = scheduleCycles.find(c => !c.active);
+                        if (nextCycle) {
+                          return (
+                              <div>
+                                <div>
+                                  <div className="led-off led-grey"></div>
+                                  &nbsp;
+                                  {nextCycle.area.name} @ {formatTime(nextCycle.start)}
+                                </div>
+                              </div>);
+                        }
+                        return <div><div>No active cycles</div></div>;
+                      })()
+                    }
+                  </td>
+                </tr>
+                <tr>
                   <td>Valves:</td>
+                  <td>
+                    <div>
+                      <div>
+                        All
+                      </div>
+                      <div>
+                        <button
+                            disabled={ pendingAllValves }
+                            style={ status.valves?.every(v => v.mode === 'auto') ? { backgroundColor: 'grey', color: 'white' } : undefined }
+                            onClick={ () => setAllValvesMode('auto') }>
+                          A
+                        </button>
+                        <button
+                            disabled={ pendingAllValves }
+                            style={ status.valves?.every(v => v.mode === 'off') ? { backgroundColor: 'grey', color: 'white' } : undefined }
+                            onClick={ () => setAllValvesMode('off') }>
+                          0
+                        </button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td></td>
                   <td>
                     {
                       status.valves?.map((valve, valveIndex) =>
@@ -326,16 +471,19 @@ const Status = ({}) => {
                             </div>
                             <div>
                               <button
+                                  disabled={ pendingValves.has(valveIndex) }
                                   style={ valve.mode === 'on' ? { backgroundColor: 'grey', color: 'white' } : undefined }
                                   onClick={ () => setValveMode(valveIndex, 'on') }>
                                 1
                               </button>
                               <button
+                                  disabled={ pendingValves.has(valveIndex) }
                                   style={ valve.mode === 'auto' ? { backgroundColor: 'grey', color: 'white' } : undefined }
                                   onClick={ () => setValveMode(valveIndex, 'auto') }>
                                 A
                               </button>
                               <button
+                                  disabled={ pendingValves.has(valveIndex) }
                                   style={ valve.mode === 'off' ? { backgroundColor: 'grey', color: 'white' } : undefined }
                                   onClick={ () => setValveMode(valveIndex, 'off') }>
                                 0

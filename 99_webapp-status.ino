@@ -1,10 +1,6 @@
 AsyncEventSource statusEvents("/api/status-events");
 uint8_t numberOfStatusEventsClients = 0;
 
-const char indexFile[] PROGMEM = "/www/index.html";
-const char tmpIndexFile[] PROGMEM = "/www/tmp_index.html";
-const char assetsDir[] PROGMEM = "/www/assets/";
-
 void setWebAppStatusEndpoints() {
 
   statusEvents.onConnect(statusClientConnected);
@@ -14,7 +10,7 @@ void setWebAppStatusEndpoints() {
   httpRestServer.on("/api/config", HTTP_POST, handleSetConfig, NULL, handleConfigUpload);
   httpRestServer.on("/api/webapp", HTTP_POST, handleWebappUploaded, handleWebappUpload);
   httpRestServer.on("/api/reboot", HTTP_GET, handleDoReboot);
-  
+
 }
 
 void handleDoReboot(AsyncWebServerRequest *request) {
@@ -22,7 +18,6 @@ void handleDoReboot(AsyncWebServerRequest *request) {
   AsyncWebServerResponse *response = request->beginResponse(200, "text/plain");
   request->send(response);
 
-  LittleFS.gc();          // flush changes to "disk"
   delay(1000);            // wait for the response to be sent to the client
   ESP.restart();          // restart to reload changed configuration
 
@@ -31,9 +26,9 @@ void handleDoReboot(AsyncWebServerRequest *request) {
 void handleWebappUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data, size_t len, bool final) {
 
   if (!index) {
-    Serial.printf_P(PSTR("Webapp upload started: %s\n"), filename.c_str());
+    Serial.printf("Webapp upload started: %s\n", filename.c_str());
     char tmpFilename[100];
-    snprintf(tmpFilename, sizeof tmpFilename, filename.equals(F("index.html")) ? PSTR("/www/tmp_%s") : PSTR("/www/assets/tmp_%s"), filename.c_str());
+    snprintf(tmpFilename, sizeof tmpFilename, filename.equals(F("index.html")) ? "/www/tmp_%s" : "/www/assets/tmp_%s", filename.c_str());
     request->setAttribute("tmpFile", tmpFilename);
   }
 
@@ -45,7 +40,7 @@ void handleWebappUpload(AsyncWebServerRequest *request, const String &filename, 
   const String &tmpFilename = request->getAttribute("tmpFile");
   File file = LittleFS.open(tmpFilename.c_str(), !index ? "w" : "a");
   if (!file) {
-    Serial.printf_P(PSTR("Failed to open `%s` for %s (%u)\n"), tmpFilename.c_str(), index ? "appending" : "writing", file.getWriteError());
+    Serial.printf("Failed to open `%s` for %s\n", tmpFilename.c_str(), index ? "appending" : "writing");
     request->setAttribute("tmpFile", "");
     return;
   }
@@ -63,43 +58,67 @@ void handleWebappUploaded(AsyncWebServerRequest *request) {
 
   Serial.println("Webapp uploaded");
 
-  Dir clear = LittleFS.openDir(FF(assetsDir));
-  while (clear.next()) {
-    if (clear.isFile()) {
-      if (!clear.fileName().startsWith("tmp_")) {
-        char path[200];
-        strcpy(path, clear.fileName().c_str());
-        if (path[clear.fileName().length() - 1] != '/') {
-          strcpy(path + clear.fileName().length(), "/");
+  // Step 1: Delete old (non-tmp) asset files
+  File assetsRoot = LittleFS.open("/www/assets");
+  if (assetsRoot && assetsRoot.isDirectory()) {
+    // First collect paths to delete (can't modify directory while iterating)
+    String toDelete[32];
+    uint8_t deleteCount = 0;
+    File file = assetsRoot.openNextFile();
+    while (file && deleteCount < 32) {
+      if (!file.isDirectory()) {
+        const char *name = file.name();
+        // Check if it's NOT a tmp file
+        const char *lastSlash = strrchr(name, '/');
+        const char *baseName = lastSlash ? lastSlash + 1 : name;
+        if (strncmp(baseName, "tmp_", 4) != 0) {
+          toDelete[deleteCount++] = file.path();
+          Serial.printf("  CLEARING: %s\n", file.path());
         }
-        strcpy(path + strlen(path), clear.fileName().c_str());
-        Serial.printf_P(PSTR("  CLEARING: %s\n"), clear.fileName().c_str());
-        LittleFS.remove(path);
       }
+      file = assetsRoot.openNextFile();
+    }
+    assetsRoot.close();
+    for (uint8_t i = 0; i < deleteCount; ++i) {
+      LittleFS.remove(toDelete[i].c_str());
     }
   }
-  Dir move = LittleFS.openDir(FF(assetsDir));
-  while (move.next()) {
-    if (move.isFile()) {
-      if (move.fileName().startsWith("tmp_")) {
-        const char *from = move.fileName().c_str();
-        char to[200];
-        strcpy_P(to, (PGM_P) assetsDir);
-        strcpy(to + strlen(to), from + 4);
-        Serial.printf_P(PSTR("  MOVING: %s > %s\n"), move.fileName().c_str(), to);
-        LittleFS.rename(from, to);
+
+  // Step 2: Rename tmp_ files in /www/assets/ (remove tmp_ prefix)
+  assetsRoot = LittleFS.open("/www/assets");
+  if (assetsRoot && assetsRoot.isDirectory()) {
+    String fromPaths[32];
+    String toPaths[32];
+    uint8_t renameCount = 0;
+    File file = assetsRoot.openNextFile();
+    while (file && renameCount < 32) {
+      if (!file.isDirectory()) {
+        const char *name = file.name();
+        const char *lastSlash = strrchr(name, '/');
+        const char *baseName = lastSlash ? lastSlash + 1 : name;
+        if (strncmp(baseName, "tmp_", 4) == 0) {
+          fromPaths[renameCount] = file.path();
+          toPaths[renameCount] = String("/www/assets/") + String(baseName + 4);
+          Serial.printf("  MOVING: %s > %s\n", fromPaths[renameCount].c_str(), toPaths[renameCount].c_str());
+          ++renameCount;
+        }
       }
+      file = assetsRoot.openNextFile();
+    }
+    assetsRoot.close();
+    for (uint8_t i = 0; i < renameCount; ++i) {
+      LittleFS.rename(fromPaths[i].c_str(), toPaths[i].c_str());
     }
   }
-  Dir indexFrom = LittleFS.openDir(FF(tmpIndexFile));
-  if (indexFrom.next()) {
-    Dir indexTo = LittleFS.openDir(FF(indexFile));
-    if (indexTo.next()) {
-      Serial.printf_P(PSTR("  CLEARING: %s\n"), FF(indexFile));
-      LittleFS.remove(FF(indexFile));
+
+  // Step 3: Replace index.html
+  if (LittleFS.exists("/www/tmp_index.html")) {
+    if (LittleFS.exists("/www/index.html")) {
+      Serial.println("  CLEARING: /www/index.html");
+      LittleFS.remove("/www/index.html");
     }
-    Serial.printf_P(PSTR("  MOVING: %s > %s\n"), FF(tmpIndexFile), FF(indexFile));
-    LittleFS.rename(FF(tmpIndexFile), FF(indexFile));
+    Serial.println("  MOVING: /www/tmp_index.html > /www/index.html");
+    LittleFS.rename("/www/tmp_index.html", "/www/index.html");
   }
 
   AsyncWebServerResponse *response = request->beginResponse(307, "text/plain"); // Temporary Redirect
@@ -109,9 +128,9 @@ void handleWebappUploaded(AsyncWebServerRequest *request) {
 }
 
 void handleGetConfig(AsyncWebServerRequest *request) {
-  
-  File file = LittleFS.open(F(CONFIG_PATH), "r");
-  if (!file || !file.available() || !file.isFile()){
+
+  File file = LittleFS.open(CONFIG_PATH, "r");
+  if (!file || !file.available()){
     Serial.println(F("Failed to open `config.json` for reading"));
     return;
   }
@@ -132,7 +151,7 @@ void handleConfigUpload(AsyncWebServerRequest *request, uint8_t *data, size_t le
   if (!index) {
     Serial.println("Config upload started");
     char tmpFilename[32];
-    snprintf(tmpFilename, sizeof tmpFilename, "/tmp_%u.json", millis());
+    snprintf(tmpFilename, sizeof tmpFilename, "/tmp_%lu.json", millis());
     Serial.println(tmpFilename);
     request->setAttribute("tmpFile", tmpFilename);
   }
@@ -145,7 +164,7 @@ void handleConfigUpload(AsyncWebServerRequest *request, uint8_t *data, size_t le
   const String &tmpFilename = request->getAttribute("tmpFile");
   File file = LittleFS.open(tmpFilename.c_str(), "a");
   if (!file) {
-    Serial.printf_P(PSTR("Failed to open `%s` for %s (%u)\n"), tmpFilename.c_str(), index ? "appending" : "writing", file.getWriteError());
+    Serial.printf("Failed to open `%s` for %s\n", tmpFilename.c_str(), index ? "appending" : "writing");
     request->setAttribute("tmpFile", "");
     return;
   }
@@ -156,7 +175,7 @@ void handleConfigUpload(AsyncWebServerRequest *request, uint8_t *data, size_t le
   if (index + len >= total) {
     Serial.printf("Config upload ended: %u bytes\n", index+len);
   }
-  
+
 }
 
 void handleSetConfig(AsyncWebServerRequest *request) {
@@ -171,8 +190,8 @@ void handleSetConfig(AsyncWebServerRequest *request) {
   const String &tmpFilename = request->getAttribute("tmpFile");
 
   AsyncWebServerResponse *response;
-  LittleFS.remove(F(CONFIG_PATH));
-  if (LittleFS.rename(tmpFilename, F(CONFIG_PATH))) {
+  LittleFS.remove(CONFIG_PATH);
+  if (LittleFS.rename(tmpFilename, CONFIG_PATH)) {
     response = request->beginResponse(200, "application/json",  F("{\"status\": 1}"));
   } else {
     response = request->beginResponse(500, "application/json", F("{\"status\": 0}"));
@@ -180,7 +199,6 @@ void handleSetConfig(AsyncWebServerRequest *request) {
   request->send(response);
 
   // restart after response was sent to activate new config uploaded
-  LittleFS.gc();          // flush changes to "disk"
   delay(1000);            // wait for the response to be sent to the client
   ESP.restart();          // restart to reload changed configuration
 
@@ -189,11 +207,11 @@ void handleSetConfig(AsyncWebServerRequest *request) {
 void statusClientConnected(AsyncEventSourceClient *client) {
 
   if(client->lastId()){
-    Serial.printf_P(PSTR("Client reconnected! Last message ID that it got is: %u\n"), client->lastId());
+    Serial.printf("Client reconnected! Last message ID that it got is: %u\n", client->lastId());
   }
   if (client->connected()) {
     numberOfStatusEventsClients += 1;
-    Serial.printf_P(PSTR("Connect status client: %p -> %u\n"), client, numberOfStatusEventsClients);
+    Serial.printf("Connect status client: %p -> %u\n", client, numberOfStatusEventsClients);
     updateStatusClients(STATUS_UPDATE_ALL);
   }
 
@@ -202,7 +220,7 @@ void statusClientConnected(AsyncEventSourceClient *client) {
 void statusClientDisconnected(AsyncEventSourceClient *client) {
 
   numberOfStatusEventsClients -= 1;
-  Serial.printf_P(PSTR("Disconnect status client: %p -> %u\n"), client, numberOfStatusEventsClients);
+  Serial.printf("Disconnect status client: %p -> %u\n", client, numberOfStatusEventsClients);
 
 }
 
@@ -248,7 +266,6 @@ void updateStatusClients(uint8_t what) {
   }
   String json;
   serializeJson(doc, json);
-  statusEvents.send(json.c_str(), what == STATUS_UPDATE_ALL ? F("INIT") : F("UPDATE"), millis(), 1000);
+  statusEvents.send(json.c_str(), what == STATUS_UPDATE_ALL ? "INIT" : "UPDATE", millis(), 1000);
 
 }
-

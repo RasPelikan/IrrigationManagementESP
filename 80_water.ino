@@ -1,21 +1,28 @@
 #define WATERLEVEL_EMPTY 0
-#define WATERLEVEL_1 2
-#define WATERLEVEL_2 35
-#define WATERLEVEL_3 67
-#define WATERLEVEL_4 68
+#define WATERLEVEL_1 20
+#define WATERLEVEL_2 40
+#define WATERLEVEL_3 69
+#define WATERLEVEL_4 80
 #define WATERLEVEL_FULL 100
 
-uint8 waterLevel = 101; // means print current level on startup
-uint8 waterStatusHysteresis = 0;
+uint8_t waterLevel = 101; // means print current level on startup
+uint8_t waterStatusHysteresis = 0;
 int waterPressure = 0;
 
 void setupWaterLevel() {
 
-  portExpander.pinMode(GPIO_WATERLEVEL_EMPTY, INPUT_PULLUP); // configure button pin for input with pull up
-  portExpander.pinMode(GPIO_WATERLEVEL_1, INPUT_PULLUP); // configure button pin for input with pull up
-  portExpander.pinMode(GPIO_WATERLEVEL_2, INPUT_PULLUP); // configure button pin for input with pull up
-  portExpander.pinMode(GPIO_WATERLEVEL_3, INPUT_PULLUP); // configure button pin for input with pull up
-  portExpander.pinMode(GPIO_WATERLEVEL_FULL, INPUT_PULLUP); // configure button pin for input with pull up
+  pinMode(GPIO_WATERLEVEL_EMPTY, INPUT_PULLUP);
+  pinMode(GPIO_WATERLEVEL_1, INPUT_PULLUP);
+  pinMode(GPIO_WATERLEVEL_2, INPUT_PULLUP);
+  pinMode(GPIO_WATERLEVEL_3, INPUT_PULLUP);
+  pinMode(GPIO_WATERLEVEL_FULL, INPUT_PULLUP);
+
+}
+
+void setupPressureControl() {
+
+  analogSetAttenuation(ADC_11db); // 0-3.3V range
+  analogReadResolution(10);       // 0-1023
 
 }
 
@@ -26,8 +33,8 @@ void updateWaterLevel() {
     --waterStatusHysteresis;
     return;
   }
-  
-  if (portExpander.digitalRead(GPIO_WATERLEVEL_EMPTY)) { // pulled-up means no water
+
+  if (digitalRead(GPIO_WATERLEVEL_EMPTY)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_EMPTY) {
       waterStatusHysteresis = irrigationConfig.waterLevelHysteresis;
       waterLevel = WATERLEVEL_EMPTY;
@@ -38,7 +45,7 @@ void updateWaterLevel() {
       Serial.print(WATERLEVEL_EMPTY);
       Serial.println(F("%"));
     }
-  } else if (portExpander.digitalRead(GPIO_WATERLEVEL_1)) { // pulled-up means no water
+  } else if (digitalRead(GPIO_WATERLEVEL_1)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_1) {
       waterStatusHysteresis = irrigationConfig.waterLevelHysteresis;
       waterLevel = WATERLEVEL_1;
@@ -51,8 +58,7 @@ void updateWaterLevel() {
       Serial.print(WATERLEVEL_1);
       Serial.println(F("%"));
     }
-    /*
-  } else if (portExpander.digitalRead(GPIO_WATERLEVEL_2)) { // pulled-up means no water
+  } else if (digitalRead(GPIO_WATERLEVEL_2)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_2) {
       waterStatusHysteresis = irrigationConfig.waterLevelHysteresis;
       waterLevel = WATERLEVEL_2;
@@ -65,7 +71,7 @@ void updateWaterLevel() {
       Serial.print(WATERLEVEL_2);
       Serial.println("%");
     }
-  } else if (portExpander.digitalRead(GPIO_WATERLEVEL_3)) { // pulled-up means no water
+  } else if (digitalRead(GPIO_WATERLEVEL_3)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_3) {
       waterStatusHysteresis = irrigationConfig.waterLevelHysteresis;
       waterLevel = WATERLEVEL_3;
@@ -78,8 +84,7 @@ void updateWaterLevel() {
       Serial.print(WATERLEVEL_3);
       Serial.println("%");
     }
-    */
-  } else if (portExpander.digitalRead(GPIO_WATERLEVEL_FULL)) { // pulled-up means no water
+  } else if (digitalRead(GPIO_WATERLEVEL_FULL)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_4) {
       waterStatusHysteresis = irrigationConfig.waterLevelHysteresis;
       waterLevel = WATERLEVEL_4;
@@ -123,9 +128,10 @@ void addWaterPressureStatus(JsonDocument &doc) {
 
 void updateWaterPressure() {
 
-  int previousPressure = waterPressure;
-  waterPressure = analogRead(A0);
-  if (abs(previousPressure - waterPressure) > 1) {
+  int newWaterPressure = analogRead(GPIO_ADC_PRESSURE);
+
+  if (abs(newWaterPressure - waterPressure) > 10) {
+    waterPressure = newWaterPressure;
     updateStatusClients(STATUS_UPDATE_WATERPRESSURE);
   }
 

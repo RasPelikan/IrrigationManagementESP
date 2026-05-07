@@ -8,6 +8,7 @@ import { Header } from "./header";
 import { useMemo, useState } from "react";
 import { Config } from "./pages/config";
 import { WebappUpload } from "./pages/webapp-upload";
+import { Schedule } from "./pages/schedule";
 
 interface AppContextValue {
 	pageTitle: string;
@@ -22,6 +23,7 @@ const Main = () => (
 			<main>
 				<Router>
 					<Status path="/" />
+					<Schedule path="/schedule" />
 					<Config path="/config" />
 					<WebappUpload path="/webapp-upload" />
 					<NotFound default />

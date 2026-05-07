@@ -9,6 +9,7 @@ bool *activeCycles = NULL;                 // tracks which cycle is active
 void setupIrrigationEndpoints() {
 
   httpRestServer.on("/api/irrigation/valve", HTTP_POST, handleValveMode);
+  httpRestServer.on("/api/irrigation/schedule", HTTP_GET, handleGetSchedule);
 
 }
 
@@ -22,7 +23,7 @@ void checkForValvesOfCycle(Cycle *cycle, bool *valveStatus) {
   uint16_t calculatedDuration = 0;
   for (uint8_t sequenceIndex = 0; !activeSequenceFound && sequenceIndex < sizeOfSequence; ++sequenceIndex) {
     Sequence *sequence = &(cycle->area->sequence[sequenceIndex]);
-    
+
     // sequence was already processed
     if ((calculatedDuration + sequence->duration) <= cycle->area->irrigatedPeriod) {
       calculatedDuration += sequence->duration;
@@ -48,7 +49,7 @@ void checkForActiveCycles() {
   for (uint8_t i = 0; i < numberOfCycles; ++i) {
     calculatedCycles[i] = NULL;
   }
-  
+
   // scan past 24 hours to get cycles currently active. this is necessary because
   // starting within a cycle, the cycle would not be activated otherwise.
   for (uint8_t currentHour = 0; currentHour < 24; ++currentHour) {
@@ -84,7 +85,7 @@ void checkForActiveCycles() {
   }
 
   /* calculate active valves */
-  
+
   // assume all valves to be inactive
   bool *valveStatus = new bool[numberOfValves];
   for (uint8_t i = 0; i < numberOfValves; ++i) {
@@ -107,7 +108,7 @@ void checkForActiveCycles() {
       // cycle needs to be deactivated
       if (calculatedCycles[cycleIndex] == NULL) {
 
-        Serial.printf_P(PSTR("Deactivating cycle %s\n"), activeCycle->area->name);
+        Serial.printf("Deactivating cycle %s\n", activeCycle->area->name);
         activeCycles[cycleIndex] = false;
         // reset tracking of how long irrigation happend
         if (activeCycle->area->resetOnActivation) {
@@ -120,7 +121,7 @@ void checkForActiveCycles() {
     // cycle needs to be activated
     else if (calculatedCycles[cycleIndex] != NULL) {
 
-      Serial.printf_P(PSTR("Activating cycle %s\n"), calculatedCycles[cycleIndex]->area->name);
+      Serial.printf("Activating cycle %s\n", calculatedCycles[cycleIndex]->area->name);
       activeCycles[cycleIndex] = true;
 
     }
@@ -138,17 +139,17 @@ void checkForActiveCycles() {
   for (uint8_t valveIndex = 0; valveIndex < numberOfValves; ++valveIndex) {
     if (valveStatus[valveIndex]) {
       if (!valves[valveIndex].active) {
-        Serial.printf_P(PSTR("%04d Activating valve %s\n"), time, valves[valveIndex].id);
+        Serial.printf("%04d Activating valve %s\n", time, valves[valveIndex].id);
         valves[valveIndex].active = true;
       }
     } else {
       if (valves[valveIndex].active) {
-        Serial.printf_P(PSTR("%04d Deactivating valve %s\n"), time, valves[valveIndex].id);
+        Serial.printf("%04d Deactivating valve %s\n", time, valves[valveIndex].id);
         valves[valveIndex].active = false;
       }
     }
   }
-  
+
   delete[] valveStatus;
   delete[] calculatedCycles;
 
@@ -166,31 +167,39 @@ void setupCycles() {
 
 void setupValves() {
 
-  portExpander.pinMode(GPIO_VALVE_1, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_1, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_2, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_2, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_3, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_3, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_4, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_4, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_5, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_5, RELAIS_OFF);
-  portExpander.pinMode(GPIO_VALVE_6, OUTPUT);
-  portExpander.digitalWrite(GPIO_VALVE_6, RELAIS_OFF);
-
+  pinMode(GPIO_VALVE_1, OUTPUT);
+  digitalWrite(GPIO_VALVE_1, RELAIS_OFF);
+  pinMode(GPIO_VALVE_2, OUTPUT);
+  digitalWrite(GPIO_VALVE_2, RELAIS_OFF);
+  pinMode(GPIO_VALVE_3, OUTPUT);
+  digitalWrite(GPIO_VALVE_3, RELAIS_OFF);
+  pinMode(GPIO_VALVE_4, OUTPUT);
+  digitalWrite(GPIO_VALVE_4, RELAIS_OFF);
+  pinMode(GPIO_VALVE_5, OUTPUT);
+  digitalWrite(GPIO_VALVE_5, RELAIS_OFF);
+  
 }
 
 void switchValves() {
 
-  // test for all valves to be switched on or off due to cycles
-  bool *valveStatus = new bool[numberOfValves];
+  // test for all valves to be switched on or off due to cycles or manual control
+  bool atLeastOneValveChanged = false;
   for (uint8_t i = 0; i < numberOfValves; ++i) {
-    if (valves[i].mode == VALVE_MODE_AUTO) {
+    if (valves[i].mode == VALVE_MODE_ON) {
+      switchValve(i, true);
+      atLeastOneValveChanged = true;
+    } else if (valves[i].mode == VALVE_MODE_AUTO && (valves[i].active || valves[i].on != valves[i].active)) {
       switchValve(i, valves[i].active);
+      atLeastOneValveChanged = true;
+    } else if (valves[i].mode == VALVE_MODE_OFF && valves[i].on) {
+      switchValve(i, false);
+      atLeastOneValveChanged = true;
     }
   }
-  updateStatusClients(STATUS_UPDATE_CYCLE);
+
+  if (atLeastOneValveChanged) {
+    updateStatusClients(STATUS_UPDATE_CYCLE);
+  }
 
 }
 
@@ -206,23 +215,187 @@ void switchValve(uint8_t index, boolean on) {
 }
 
 void switchRemoteValve(char *url, boolean on) {
+  
+  HTTPClient http;
+  http.begin(url);
+  if (wifiConfig.httpUsername != NULL && wifiConfig.httpPassword != NULL) {
+    http.setAuthorization(wifiConfig.httpUsername, wifiConfig.httpPassword);
+  }
+  int httpCode;
+  if (on) {
+    Serial.println("PUT ");
+    httpCode = http.PUT("");
+  } else {
+    Serial.println("DELETE ");
+    httpCode = http.sendRequest("DELETE");
+  }
+  Serial.println(url);
+  if (httpCode < 0) {
+    setError("Remote valve %s failed: %s", url, http.errorToString(httpCode).c_str());
+  } else if (httpCode < 200 || httpCode >= 300) {
+    setError("Remote valve %s returned HTTP %d", url, httpCode);
+  } else if (error != NULL && strncmp(error, "Remote valve ", 13) == 0) {
+    delete[] error;
+    error = NULL;
+    updateStatusClients(STATUS_UPDATE_ERROR);
+  }
+  http.end();
+
 }
 
 void switchGpioValve(uint8_t gpio, boolean on) {
 
-  uint8_t valveGpio;
-  switch (gpio) {
-    case 1: valveGpio = GPIO_VALVE_1; break;
-    case 2: valveGpio = GPIO_VALVE_2; break;
-    case 3: valveGpio = GPIO_VALVE_3; break;
-    case 4: valveGpio = GPIO_VALVE_4; break;
-    case 5: valveGpio = GPIO_VALVE_5; break;
-    case 6: valveGpio = GPIO_VALVE_6; break;
-    default: valveGpio = 255;
+  if ((gpio != GPIO_VALVE_1)
+      && (gpio != GPIO_VALVE_2)
+      && (gpio != GPIO_VALVE_3)
+      && (gpio != GPIO_VALVE_4)
+      && (gpio != GPIO_VALVE_5)) {
+    return;
   }
-  if (gpio != 255) {
-    portExpander.digitalWrite(valveGpio, on ? RELAIS_ON : RELAIS_OFF);
+
+  digitalWrite(gpio, on ? RELAIS_ON : RELAIS_OFF);
+
+}
+
+void handleGetSchedule(AsyncWebServerRequest *request) {
+
+  JsonDocument doc;
+  JsonArray cyclesArray = doc["cycles"].to<JsonArray>();
+
+  // copy irrigatedPeriod per area for simulation without modifying real state
+  uint16_t *simIrrigatedPeriod = new uint16_t[numberOfAreas];
+  for (uint8_t i = 0; i < numberOfAreas; ++i) {
+    simIrrigatedPeriod[i] = areas[i].irrigatedPeriod;
   }
+
+  // per-cycle sequence start times: layout [cycle0_seq0, cycle0_seq1, ..., cycle1_seq0, ...]
+  // calculate total number of sequence slots across all cycles
+  uint16_t totalCycleSeqs = 0;
+  for (uint8_t c = 0; c < numberOfCycles; ++c) {
+    totalCycleSeqs += cycles[c].area->sizeOfSequence;
+  }
+  int16_t *seqStartTimes = new int16_t[totalCycleSeqs];
+  for (uint16_t i = 0; i < totalCycleSeqs; ++i) {
+    seqStartTimes[i] = -1;
+  }
+
+  // simulate 24h forward to determine cycle activity and sequence start times
+  bool *simActiveCycles = new bool[numberOfCycles];
+  for (uint8_t i = 0; i < numberOfCycles; ++i) {
+    simActiveCycles[i] = activeCycles[i];
+  }
+
+  for (uint8_t currentHour = 0; currentHour < 24; ++currentHour) {
+    for (uint16_t currentMinute = 0; currentMinute < 60; ++currentMinute) {
+
+      uint16_t projectedMinute = currentMinute + tm_now.tm_min + 1;
+      uint16_t currentTime;
+      if (projectedMinute < 60) {
+        currentTime = (projectedMinute + (currentHour + tm_now.tm_hour) * 100) % 2400;
+      } else {
+        currentTime = ((projectedMinute % 60) + (currentHour + tm_now.tm_hour + 1) * 100) % 2400;
+      }
+
+      for (uint8_t cycleIndex = 0; cycleIndex < numberOfCycles; ++cycleIndex) {
+        Cycle *cycle = &cycles[cycleIndex];
+
+        if (cycle->end == currentTime && simActiveCycles[cycleIndex]) {
+          simActiveCycles[cycleIndex] = false;
+          for (uint8_t a = 0; a < numberOfAreas; ++a) {
+            if (cycle->area == &areas[a] && areas[a].resetOnActivation) {
+              simIrrigatedPeriod[a] = 0;
+            }
+          }
+        }
+
+        if (cycle->start == currentTime) {
+          simActiveCycles[cycleIndex] = true;
+        }
+      }
+
+      // advance irrigatedPeriod for active cycles and track sequence starts per cycle
+      for (uint8_t cycleIndex = 0; cycleIndex < numberOfCycles; ++cycleIndex) {
+        if (!simActiveCycles[cycleIndex]) continue;
+
+        Area *area = cycles[cycleIndex].area;
+        uint8_t areaIndex = 0;
+        for (uint8_t a = 0; a < numberOfAreas; ++a) {
+          if (&areas[a] == area) { areaIndex = a; break; }
+        }
+
+        // calculate offset into seqStartTimes for this cycle
+        uint16_t cycleSeqOffset = 0;
+        for (uint8_t c = 0; c < cycleIndex; ++c) {
+          cycleSeqOffset += cycles[c].area->sizeOfSequence;
+        }
+
+        // determine which sequence is active at current irrigatedPeriod
+        uint16_t simPeriod = simIrrigatedPeriod[areaIndex] % area->totalTimeOfSequences;
+        uint16_t calculatedDuration = 0;
+        for (uint8_t s = 0; s < area->sizeOfSequence; ++s) {
+          if ((calculatedDuration + area->sequence[s].duration) <= simPeriod) {
+            calculatedDuration += area->sequence[s].duration;
+          } else {
+            if (seqStartTimes[cycleSeqOffset + s] == -1) {
+              seqStartTimes[cycleSeqOffset + s] = currentTime;
+            }
+            break;
+          }
+        }
+
+        ++(simIrrigatedPeriod[areaIndex]);
+      }
+
+    }
+  }
+
+  // build JSON response
+  uint16_t cycleSeqOffset = 0;
+  for (uint8_t c = 0; c < numberOfCycles; ++c) {
+    Area *area = cycles[c].area;
+
+    JsonObject cycleObj = cyclesArray.add<JsonObject>();
+    char startBuf[5], endBuf[5];
+    snprintf(startBuf, sizeof startBuf, "%04d", cycles[c].start);
+    snprintf(endBuf, sizeof endBuf, "%04d", cycles[c].end);
+    cycleObj["start"] = startBuf;
+    cycleObj["end"] = endBuf;
+    cycleObj["active"] = activeCycles[c];
+
+    JsonObject areaObj = cycleObj["area"].to<JsonObject>();
+    areaObj["name"] = area->name;
+    areaObj["reset"] = area->resetOnActivation;
+    areaObj["irrigatedPeriod"] = area->irrigatedPeriod;
+    areaObj["totalTime"] = area->totalTimeOfSequences;
+
+    JsonArray seqArray = areaObj["sequences"].to<JsonArray>();
+    for (uint8_t s = 0; s < area->sizeOfSequence; ++s) {
+      Sequence *seq = &area->sequence[s];
+      JsonObject seqObj = seqArray.add<JsonObject>();
+      seqObj["duration"] = seq->duration;
+
+      if (seqStartTimes[cycleSeqOffset + s] >= 0) {
+        char timeBuf[5];
+        snprintf(timeBuf, sizeof timeBuf, "%04d", seqStartTimes[cycleSeqOffset + s]);
+        seqObj["startTime"] = timeBuf;
+      }
+
+      JsonArray valvesArr = seqObj["valves"].to<JsonArray>();
+      for (uint8_t v = 0; v < seq->numberOfValves; ++v) {
+        valvesArr.add(seq->valves[v]->id);
+      }
+    }
+
+    cycleSeqOffset += area->sizeOfSequence;
+  }
+
+  delete[] simIrrigatedPeriod;
+  delete[] seqStartTimes;
+  delete[] simActiveCycles;
+
+  AsyncResponseStream *response = request->beginResponseStream("application/json");
+  serializeJson(doc, *response);
+  request->send(response);
 
 }
 
@@ -243,31 +416,72 @@ void addCycleStatus(JsonDocument &doc) {
 
 }
 
+void addPendingValve(uint8_t index) {
+  uint8_t count = pendingValves[0];
+  if (count < MAX_PENDING_VALVES) {
+    pendingValves[1 + count] = index;
+    pendingValves[0] = count + 1;
+  }
+}
+
+bool applyValveMode(uint8_t index, const String &value) {
+
+  if (value.equals(F("auto")) && (valves[index].mode != MODE_VALVE_AUTO)) {
+    valves[index].mode = MODE_VALVE_AUTO;
+    addPendingValve(index);
+    return true;
+  } else if (value.equals(F("off")) && (valves[index].mode != MODE_VALVE_OFF)) {
+    valves[index].mode = MODE_VALVE_OFF;
+    addPendingValve(index);
+    return true;
+  } else if (value.equals(F("on")) && (valves[index].mode != MODE_VALVE_ON)) {
+    valves[index].mode = MODE_VALVE_ON;
+    addPendingValve(index);
+    return true;
+  }
+  return false;
+
+}
+
 void handleValveMode(AsyncWebServerRequest *request) {
 
   request->send(200, F("text/plain"), F(""));
-  if (request->hasParam(MODE_VALVE_PARAM, true)
-      && request->hasParam(INDEX_VALVE_PARAM, true)) {
+  if (!request->hasParam(MODE_VALVE_PARAM, true)) {
+    return;
+  }
+  String value = request->getParam(MODE_VALVE_PARAM, true)->value();
+  bool updated = false;
+  if (request->hasParam(INDEX_VALVE_PARAM, true)) {
     uint8_t index = constrain(request->getParam(INDEX_VALVE_PARAM, true)->value().toInt(), 0, 255);
-    String value = request->getParam(MODE_VALVE_PARAM, true)->value();
-    bool updated = false;
-    if (value.equals(F("auto")) && (valves[index].mode != MODE_VALVE_AUTO)) {
-      valves[index].mode = MODE_VALVE_AUTO;
-      switchValves();
-      updated = true;
-    } else if (value.equals(F("off")) && (valves[index].mode != MODE_VALVE_OFF)) {
-      valves[index].mode = MODE_VALVE_OFF;
-      switchValve(index, false);
-      updated = true;
-    } else if (value.equals(F("on")) && (valves[index].mode != MODE_VALVE_ON)) {
-      valves[index].mode = MODE_VALVE_ON;
-      switchValve(index, true);
-      updated = true;
-    }
-    if (updated) {
-      updateStatusClients(STATUS_UPDATE_CYCLE);
+    updated = applyValveMode(index, value);
+  } else {
+    for (uint8_t i = 0; i < numberOfValves; ++i) {
+      updated |= applyValveMode(i, value);
     }
   }
 
 }
 
+void handleManualValveChanges() {
+
+  if (pendingValves[0] == 0) {
+    return;
+  }
+
+  uint8_t count = pendingValves[0];
+  pendingValves[0] = 0;
+  
+  for (uint8_t i = 0; i < count; ++i) {
+    uint8_t index = pendingValves[1 + i];
+    if (valves[index].mode == VALVE_MODE_ON) {
+      switchValve(index, true);
+    } else if (valves[index].mode == VALVE_MODE_OFF) {
+      switchValve(index, false);
+    } else {
+      switchValve(index, valves[index].active);
+    }
+  }
+
+  updateStatusClients(STATUS_UPDATE_CYCLE);
+  
+}

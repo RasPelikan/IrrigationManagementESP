@@ -1,14 +1,11 @@
-#define GPIO_WELLPUMP 9 // GPB1
-#define GPIO_WELLPUMP_LED 6 // GPA6
-
 #define MODE_WELLPUMP_ON 1
 #define MODE_WELLPUMP_AUTO 0
 #define MODE_WELLPUMP_OFF 2
 #define MODE_WELLPUMP_PARAM "mode"
 
 bool wellPumpActive = false;
-uint8 wellPumpMode = MODE_WELLPUMP_AUTO;
-uint8 wellPumpInterval = 0;
+uint8_t wellPumpMode = MODE_WELLPUMP_AUTO;
+uint8_t wellPumpInterval = 0;
 
 void setupWellPump() {
 
@@ -16,10 +13,10 @@ void setupWellPump() {
   // that the sleep interval is adhered to
   wellPumpInterval = irrigationConfig.wellPumpCycleOff;
 
-  portExpander.pinMode(GPIO_WELLPUMP_LED, OUTPUT);
+  pinMode(GPIO_WELLPUMP_LED, OUTPUT);
 
-  portExpander.pinMode(GPIO_WELLPUMP, OUTPUT);
-  portExpander.digitalWrite(GPIO_WELLPUMP, RELAIS_OFF);
+  pinMode(GPIO_WELLPUMP, OUTPUT);
+  digitalWrite(GPIO_WELLPUMP, RELAIS_OFF);
 
 }
 
@@ -79,7 +76,7 @@ void activateOrDeactivateWellPumpIfContainerIsNotFull() {
 void switchOnWellPump() {
 
     wellPumpActive = true;
-    portExpander.digitalWrite(GPIO_WELLPUMP, RELAIS_ON);
+    digitalWrite(GPIO_WELLPUMP, RELAIS_ON);
     wellPumpInterval = irrigationConfig.wellPumpCycleOn;
 
     updateStatusClients(STATUS_UPDATE_WELLPUMP);
@@ -93,7 +90,7 @@ void switchOnWellPump() {
 void switchOffWellPump(bool setInterval) {
 
     wellPumpActive = false;
-    portExpander.digitalWrite(GPIO_WELLPUMP, RELAIS_OFF);
+    digitalWrite(GPIO_WELLPUMP, RELAIS_OFF);
     if (setInterval) {
       wellPumpInterval = irrigationConfig.wellPumpCycleOff;
     } else {
@@ -127,7 +124,7 @@ void switchOffWellPumpIfContainerIsFull() {
       } else if (wellPumpMode == MODE_WELLPUMP_AUTO) {
 
         Serial.println(F("Disable well pump because container is full"));
-        
+
       }
 
     }
@@ -138,18 +135,18 @@ void blinkWellPumpLed() {
 
   if (wellPumpActive) {
     if (interval >> 2 == 0) { // blinking slow
-      portExpander.digitalWrite(GPIO_WELLPUMP_LED, HIGH);
+      digitalWrite(GPIO_WELLPUMP_LED, HIGH);
     } else {
-      portExpander.digitalWrite(GPIO_WELLPUMP_LED, LOW);
+      digitalWrite(GPIO_WELLPUMP_LED, LOW);
     }
   } else if (wellPumpInterval > 0) {
     if (interval == 0) { // flash
-      portExpander.digitalWrite(GPIO_WELLPUMP_LED, HIGH);
+      digitalWrite(GPIO_WELLPUMP_LED, HIGH);
     } else {
-      portExpander.digitalWrite(GPIO_WELLPUMP_LED, LOW);
+      digitalWrite(GPIO_WELLPUMP_LED, LOW);
     }
   } else {
-    portExpander.digitalWrite(GPIO_WELLPUMP_LED, LOW);
+    digitalWrite(GPIO_WELLPUMP_LED, LOW);
   }
 
 }
@@ -179,7 +176,7 @@ void handleWellPumpMode(AsyncWebServerRequest *request) {
 }
 
 void addWellPumpStatus(JsonDocument &doc) {
-  
+
   doc[F("wellPump")] = wellPumpActive ? F("active-cycle") : wellPumpInterval > 0 ? F("inactive-cycle") : F("inactive");
   doc[F("wellPumpCycle")] = wellPumpInterval;
   doc[F("wellPumpMode")] = wellPumpMode == 0 ? F("auto") : wellPumpMode == 1 ? F("on") : F("off");

@@ -1,46 +1,40 @@
 
-#include <SyncClient.h>
-#include <async_config.h>
-#include <tcp_axtls.h>
-
 #include <Arduino.h>
-#if defined(ESP8266)
-  #include <ESP8266WiFi.h>
-  #include <ESP8266HTTPClient.h>
-  #include <ESPAsyncTCP.h>
-#elif defined(ESP32)
-  #include <WiFi.h>
-#endif
-#include <ESPAsyncTCPbuffer.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <WiFiClient.h>
-#include <Adafruit_MCP23X17.h>
 #include <time.h>
 #include "types.h"
-#include "WString.h"  // https://github.com/esp8266/Arduino/blob/60fe7b4ca8cdca25366af8a7c0a7b70d32c797f8/doc/PROGMEM.rst
 #include "LittleFS.h"
 #include <ArduinoJson.h>
 
-#define PORT_EXPANDER_ADDR 0 // Adresse 0x20 / 0
-Adafruit_MCP23X17 portExpander;
+// ESP32 GPIO pin definitions
+#define GPIO_ADC_PRESSURE 34
 
-// see https://github.com/adafruit/Adafruit-MCP23017-Arduino-Library
-#define GPIO_WATERLEVEL_EMPTY 4 // GPA4
-#define GPIO_WATERLEVEL_1 3 // GPA3
-#define GPIO_WATERLEVEL_2 2 // GPA2
-#define GPIO_WATERLEVEL_3 1 // GPA1
-#define GPIO_WATERLEVEL_FULL 0 // GPA0
+#define GPIO_IRRIGATIONPUMP 14
+#define GPIO_WELLPUMP 27
 
-#define GPIO_VALVE_1 10 // GPB2
-#define GPIO_VALVE_2 11 // GPB3
-#define GPIO_VALVE_3 12 // GPB4
-#define GPIO_VALVE_4 13 // GPB5
-#define GPIO_VALVE_5 14 // GPB6
-#define GPIO_VALVE_6 15 // GPB7
+#define GPIO_VALVE_1 25
+#define GPIO_VALVE_2 26
+#define GPIO_VALVE_3 32
+#define GPIO_VALVE_4 33
+#define GPIO_VALVE_5 13
+
+#define GPIO_WATERLEVEL_EMPTY 19
+#define GPIO_WATERLEVEL_1 18
+#define GPIO_WATERLEVEL_2 5
+#define GPIO_WATERLEVEL_3 17
+#define GPIO_WATERLEVEL_FULL 16
+
+#define GPIO_WIFI_LED 21
+#define GPIO_WELLPUMP_LED 22
+#define GPIO_IRRIGATIONPUMP_LED 23
+
 #define RELAIS_ON LOW
 #define RELAIS_OFF HIGH
 
-#define GPIO_WIFI_LED 7 // GPA7
 #define WIFI_STATUS_DISCONNECTED 0
 #define WIFI_STATUS_CONNECTING 1
 #define WIFI_STATUS_WAITING_FOR_NTP 2
@@ -61,11 +55,11 @@ Adafruit_MCP23X17 portExpander;
 
 #define MAX_ERROR_LENGTH 300
 
-WiFiEventHandler wifiConnectHandler;
-WiFiEventHandler wifiDisconnectHandler;
 char *error = NULL;
 uint32_t heapAfterSetup = 0;
 bool wrongConfig = true;
+#define MAX_PENDING_VALVES 50
+volatile uint8_t pendingValves[MAX_PENDING_VALVES + 1] = { 0 };  // [0] = count, [1..n] = valve indexes
 
 void setup() {
 
@@ -73,14 +67,8 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\n\n\n\n");
 
-  if(!LittleFS.begin()) {
+  if(!LittleFS.begin(true)) {
     Serial.println(F("An error has occurred on mounting LittleFS"));
-    return;
-  }
-
-  // Setup port expander MCP27013 for I2C address 0x20 
-  if (!portExpander.begin_I2C(0x20)) {
-    Serial.println(F("Could not initialize I2C port-expander on port 0x20!"));
     return;
   }
 
@@ -91,13 +79,13 @@ void setup() {
   wrongConfig = false;
 
   // Initialize NTP for current time and Wifi
-  setupNtp();
   setupWifi();
 
   // Initialize water pumps and valves
   setupIrrigationPump();
   setupWellPump();
   setupWaterLevel();
+  setupPressureControl();
   setupValves();
 
   // Initialize cycle processing
@@ -177,6 +165,9 @@ void loop() {
 
     }
 
+    // switch valves if mode changed via REST API
+    handleManualValveChanges();
+
     // every 30 seconds send update to clients to keep SSE connection alive
     if ((tm_now.tm_sec != lastSecond)
         && ((tm_now.tm_sec == 15) || (tm_now.tm_sec == 45))) {
@@ -200,23 +191,23 @@ void blinkLeds() {
 }
 
 void blinkWifiLed() {
-
+  
   if (wifiStatus == WIFI_STATUS_DISCONNECTED) {
-      portExpander.digitalWrite(GPIO_WIFI_LED, LOW);
+      digitalWrite(GPIO_WIFI_LED, HIGH);
   } else if (wifiStatus == WIFI_STATUS_CONNECTING) {
     if (interval % 2 == 0) { // blinking fast
-      portExpander.digitalWrite(GPIO_WIFI_LED, HIGH);
+      digitalWrite(GPIO_WIFI_LED, HIGH);
     } else {
-      portExpander.digitalWrite(GPIO_WIFI_LED, LOW);
+      digitalWrite(GPIO_WIFI_LED, LOW);
     }
   } else if (wifiStatus == WIFI_STATUS_WAITING_FOR_NTP) {
     if (interval >> 3 == 0) { // blinking slow
-      portExpander.digitalWrite(GPIO_WIFI_LED, HIGH);
+      digitalWrite(GPIO_WIFI_LED, HIGH);
     } else {
-      portExpander.digitalWrite(GPIO_WIFI_LED, LOW);
+      digitalWrite(GPIO_WIFI_LED, LOW);
     }
   } else if (wifiStatus == WIFI_STATUS_NTP_ACTIVE) {
-    portExpander.digitalWrite(GPIO_WIFI_LED, HIGH);
+    digitalWrite(GPIO_WIFI_LED, LOW);
   }
 
 }
@@ -226,7 +217,7 @@ void printTime(time_t time) {
   tm tmp_tm;
   localtime_r(&time, &tmp_tm);          // converts epoch time to tm structure
 
-  Serial.printf_P(PSTR("%04u-%02u-%02u %02u:%02u:%02u (day: %u, daylight-saving: %u)\n"),
+  Serial.printf("%04u-%02u-%02u %02u:%02u:%02u (day: %u, daylight-saving: %u)\n",
       tmp_tm.tm_year + 1900,            // years since 1900
       tmp_tm.tm_mon + 1,                // January = 0 (!)
       tmp_tm.tm_mday,                   // day of month
@@ -235,11 +226,11 @@ void printTime(time_t time) {
       tmp_tm.tm_sec,                    // seconds after the minute 0-59
       tmp_tm.tm_wday,                   // days since Sunday 0-6
       tmp_tm.tm_isdst);                 // Daylight Saving Time flag
-  
+
 }
 
-void setError(PGM_P format, ...) {
-  
+void setError(const char *format, ...) {
+
   if (error != NULL) {
     return;
   }
@@ -247,7 +238,7 @@ void setError(PGM_P format, ...) {
   error = new char[MAX_ERROR_LENGTH];
   va_list arg;
   va_start(arg, format);
-  vsnprintf_P(error, MAX_ERROR_LENGTH, format, arg);
+  vsnprintf(error, MAX_ERROR_LENGTH, format, arg);
   va_end(arg);
 
   Serial.println(error);

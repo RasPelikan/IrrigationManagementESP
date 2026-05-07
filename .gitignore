@@ -1,3 +1,9 @@
 data
 build
 .DS_Store
+
+# arduino-cli config (generated; toolchain itself lives in ~/Library/Arduino15-IrrigationManagementESP/)
+.arduino-cli.yaml
+
+# Toolchain snapshots (large; archive externally — see README "Cold-storage rebuild")
+vendor
