@@ -105,7 +105,19 @@ void onWifiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
   setupIrrigationPumpEndpoints();
   setupIrrigationEndpoints();
   httpRestServer.onNotFound(handleNotFound);
-  AsyncStaticWebHandler &handler = httpRestServer
+  // The static tree is split so the PWA can install on Android:
+  //   - /assets/index-*  (compiled webapp bundle): auth-protected.
+  //   - everything else  (HTML shell, sw.js, manifest, icons): public.
+  // Chrome on Android can't show a Basic Auth dialog inside a PWA standalone
+  // window, so manifest, icons and sw.js need to be reachable without auth or
+  // the install icon stays blank and the launched window stays empty. The
+  // bundle URL prefix `/assets/index` matches Vite's hashed output filenames
+  // (assets/index-XXXXXXXX.{js,css}) — handler registration order matters
+  // because AsyncWebServer dispatches in registration order.
+  AsyncStaticWebHandler &codeHandler = httpRestServer
+      .serveStatic("/assets/index", LittleFS, "/www/assets/index")
+      .setCacheControl("no-cache, no-store, max-age=0");
+  AsyncStaticWebHandler &publicHandler = httpRestServer
       .serveStatic("/", LittleFS, "/www/")
       .setDefaultFile("index.html")
       .setCacheControl("no-cache, no-store, max-age=0");
@@ -114,7 +126,7 @@ void onWifiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
       setError("Config JSON has no or empty value 'http.password'!");
       Serial.println(error);
     } else {
-      handler.setAuthentication(wifiConfig.httpUsername, wifiConfig.httpPassword);
+      codeHandler.setAuthentication(wifiConfig.httpUsername, wifiConfig.httpPassword);
     }
   }
 

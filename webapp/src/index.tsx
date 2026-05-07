@@ -50,3 +50,13 @@ export const App = () => {
 }
 
 render(<App/>, document.getElementById('app'));
+
+// PWA: register the service worker so the app becomes installable on
+// Android Chrome. Service workers require a secure context — on bare HTTP
+// (LAN IP) registration silently fails and the app still works as a normal
+// site or iOS home-screen bookmark, so we don't surface the error.
+if ('serviceWorker' in navigator) {
+	window.addEventListener('load', () => {
+		navigator.serviceWorker.register('/sw.js').catch(() => {});
+	});
+}

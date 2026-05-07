@@ -134,6 +134,24 @@ npm run build
 cd ..
 ```
 
+#### Progressive Web App (install on phone)
+
+The webapp is set up as a PWA so it can be added to a phone's home screen and
+launched fullscreen like a native app. Files involved (all in `webapp/public/`,
+copied verbatim to `data/www/` by Vite):
+
+| File | Purpose |
+|------|---------|
+| `manifest.json` | Web App Manifest (name, icons, theme colour, `display: standalone`). Named `.json` instead of `.webmanifest` because ESPAsyncWebServer's MIME table knows `.json` but not `.webmanifest`. |
+| `sw.js` | Minimal service worker with a no-op `fetch` listener — exists only to satisfy Chrome's installability criteria; no asset pre-caching. |
+| `icon.svg` | Master icon (water droplet with leaf). Used by Chrome and as favicon. |
+| `icon-192.png`, `icon-512.png` | Pre-rendered PNGs for iOS `apple-touch-icon` and Android adaptive (`maskable`) icons. Regenerate from the SVG with `qlmanage -t -s 512 -o webapp/public webapp/public/icon.svg` (and `-s 192`) if the icon changes. |
+
+Service workers require a secure context — installation on iOS works over plain
+HTTP, but the full Android Chrome install prompt only appears when the device
+is reached via HTTPS or `localhost`. The SW registration silently no-ops on
+HTTP, so the site keeps working as a normal web page.
+
 ### Initial upload
 
 Initially, the firmware and the files (webapp and config files) have to be uploaded via USB.

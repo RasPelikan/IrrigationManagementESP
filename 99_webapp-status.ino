@@ -23,12 +23,27 @@ void handleDoReboot(AsyncWebServerRequest *request) {
 
 }
 
+// Files that must live directly under /www/ (not /www/assets/) for the webapp
+// to work. Add new entries here when introducing more root-level files.
+//   index.html: the SPA entry point.
+//   sw.js: service workers can only control URLs under their own path, so the
+//          file must be served from the site root for the PWA to install.
+static const char *const ROOT_WEBAPP_FILES[] = { "index.html", "sw.js" };
+static const size_t ROOT_WEBAPP_FILES_COUNT = sizeof(ROOT_WEBAPP_FILES) / sizeof(ROOT_WEBAPP_FILES[0]);
+
+static bool isRootWebappFile(const String &filename) {
+  for (size_t i = 0; i < ROOT_WEBAPP_FILES_COUNT; ++i) {
+    if (filename.equals(ROOT_WEBAPP_FILES[i])) return true;
+  }
+  return false;
+}
+
 void handleWebappUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data, size_t len, bool final) {
 
   if (!index) {
     Serial.printf("Webapp upload started: %s\n", filename.c_str());
     char tmpFilename[100];
-    snprintf(tmpFilename, sizeof tmpFilename, filename.equals(F("index.html")) ? "/www/tmp_%s" : "/www/assets/tmp_%s", filename.c_str());
+    snprintf(tmpFilename, sizeof tmpFilename, isRootWebappFile(filename) ? "/www/tmp_%s" : "/www/assets/tmp_%s", filename.c_str());
     request->setAttribute("tmpFile", tmpFilename);
   }
 
@@ -111,14 +126,18 @@ void handleWebappUploaded(AsyncWebServerRequest *request) {
     }
   }
 
-  // Step 3: Replace index.html
-  if (LittleFS.exists("/www/tmp_index.html")) {
-    if (LittleFS.exists("/www/index.html")) {
-      Serial.println("  CLEARING: /www/index.html");
-      LittleFS.remove("/www/index.html");
+  // Step 3: Replace each root-level file (index.html, sw.js, ...) for which a
+  // tmp_ counterpart was uploaded. Files not in this batch are left intact.
+  for (size_t i = 0; i < ROOT_WEBAPP_FILES_COUNT; ++i) {
+    String tmpPath = String("/www/tmp_") + ROOT_WEBAPP_FILES[i];
+    String finalPath = String("/www/") + ROOT_WEBAPP_FILES[i];
+    if (!LittleFS.exists(tmpPath.c_str())) continue;
+    if (LittleFS.exists(finalPath.c_str())) {
+      Serial.printf("  CLEARING: %s\n", finalPath.c_str());
+      LittleFS.remove(finalPath.c_str());
     }
-    Serial.println("  MOVING: /www/tmp_index.html > /www/index.html");
-    LittleFS.rename("/www/tmp_index.html", "/www/index.html");
+    Serial.printf("  MOVING: %s > %s\n", tmpPath.c_str(), finalPath.c_str());
+    LittleFS.rename(tmpPath.c_str(), finalPath.c_str());
   }
 
   AsyncWebServerResponse *response = request->beginResponse(307, "text/plain"); // Temporary Redirect

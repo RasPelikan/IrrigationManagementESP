@@ -24,14 +24,14 @@ const WebappUpload = ({}) => {
   return (
       <div className="status-main webappupload-main">
         <p>
-          All files of the webapp have to be uploaded at once (index.html, assets/*)!
+          All files of the webapp have to be uploaded at once: <code>index.html</code>, <code>sw.js</code> and everything under <code>assets/</code>.
         </p>
         <form action="/api/webapp" method="POST" enctype="multipart/form-data">
           {
             files.map((file, index) => (
                 <label class="file-label" key={ index }>
                   File #{ file }:&nbsp;
-                  <input name="{ file }" type="file" accept="text/*" />
+                  <input name="{ file }" type="file" />
                   <button type="button" onClick={ () => remove(file) }>Remove</button>
                 </label>))
           }
