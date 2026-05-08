@@ -22,7 +22,7 @@ void setupWellPump() {
 
 void setupWellPumpEndpoints() {
 
-  httpRestServer.on("/api/well-pump", HTTP_POST, handleWellPumpMode);
+  applyApiAuth(httpRestServer.on("/api/well-pump", HTTP_POST, handleWellPumpMode));
 
 }
 

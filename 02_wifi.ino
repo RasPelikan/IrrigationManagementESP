@@ -10,7 +10,20 @@ bool doOTAifActive() {
   return ota_progress_millis != 0;
 }
 
+// Applies HTTP auth to API handlers when credentials are configured. Used by
+// every endpoint registered via httpRestServer.on(...) and the SSE handler
+// across the .ino files in this sketch. No-op if credentials are missing —
+// the device falls back to an open API, matching the static-handler logic.
+void applyApiAuth(AsyncWebHandler &handler) {
+  if (wifiConfig.httpUsername != NULL && wifiConfig.httpPassword != NULL) {
+    handler.setAuthentication(wifiConfig.httpUsername, wifiConfig.httpPassword);
+  }
+}
+
 void setupOTA() {
+  if (wifiConfig.httpUsername != NULL && wifiConfig.httpPassword != NULL) {
+    ElegantOTA.setAuth(wifiConfig.httpUsername, wifiConfig.httpPassword);
+  }
   ElegantOTA.begin(&httpRestServer);
   ElegantOTA.onStart(onOTAStart);
   ElegantOTA.onProgress(onOTAProgress);
@@ -100,7 +113,7 @@ void onWifiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
   Serial.println(WiFi.localIP().toString());
 
   // Setup REST endpoints
-  httpRestServer.on("/rssi", HTTP_GET, handleRSSI);
+  applyApiAuth(httpRestServer.on("/rssi", HTTP_GET, handleRSSI));
   setupWellPumpEndpoints();
   setupIrrigationPumpEndpoints();
   setupIrrigationEndpoints();

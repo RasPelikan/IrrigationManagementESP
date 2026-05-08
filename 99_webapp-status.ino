@@ -5,11 +5,12 @@ void setWebAppStatusEndpoints() {
 
   statusEvents.onConnect(statusClientConnected);
   statusEvents.onDisconnect(statusClientDisconnected);
+  applyApiAuth(statusEvents);
   httpRestServer.addHandler(&statusEvents);
-  httpRestServer.on("/api/config", HTTP_GET, handleGetConfig);
-  httpRestServer.on("/api/config", HTTP_POST, handleSetConfig, NULL, handleConfigUpload);
-  httpRestServer.on("/api/webapp", HTTP_POST, handleWebappUploaded, handleWebappUpload);
-  httpRestServer.on("/api/reboot", HTTP_GET, handleDoReboot);
+  applyApiAuth(httpRestServer.on("/api/config", HTTP_GET, handleGetConfig));
+  applyApiAuth(httpRestServer.on("/api/config", HTTP_POST, handleSetConfig, NULL, handleConfigUpload));
+  applyApiAuth(httpRestServer.on("/api/webapp", HTTP_POST, handleWebappUploaded, handleWebappUpload));
+  applyApiAuth(httpRestServer.on("/api/reboot", HTTP_GET, handleDoReboot));
 
 }
 

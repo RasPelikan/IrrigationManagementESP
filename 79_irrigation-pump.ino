@@ -17,7 +17,7 @@ void setupIrrigationPump() {
 
 void setupIrrigationPumpEndpoints() {
 
-  httpRestServer.on("/api/irrigation-pump", HTTP_POST, handleIrrigationPumpMode);
+  applyApiAuth(httpRestServer.on("/api/irrigation-pump", HTTP_POST, handleIrrigationPumpMode));
 
 }
 

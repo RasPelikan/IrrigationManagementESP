@@ -8,8 +8,8 @@ bool *activeCycles = NULL;                 // tracks which cycle is active
 
 void setupIrrigationEndpoints() {
 
-  httpRestServer.on("/api/irrigation/valve", HTTP_POST, handleValveMode);
-  httpRestServer.on("/api/irrigation/schedule", HTTP_GET, handleGetSchedule);
+  applyApiAuth(httpRestServer.on("/api/irrigation/valve", HTTP_POST, handleValveMode));
+  applyApiAuth(httpRestServer.on("/api/irrigation/schedule", HTTP_GET, handleGetSchedule));
 
 }
 
