@@ -15,7 +15,7 @@ interface ImStatus {
   rssi?: number;
   heapAfterSetup?: number;
   heap?: number;
-  waterLevel?: number;
+  waterLevel?: string;
   waterPressure?: number;
   waterPressureAdc?: number;
   irrigationPump: 'active' | 'inactive' | 'out-of-water';
@@ -279,7 +279,7 @@ const Status = ({}) => {
                     <div>
                       {
                         status.waterLevel
-                      }%
+                      }
                     </div>
                   </td>
                 </tr>
