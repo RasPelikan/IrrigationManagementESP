@@ -25,6 +25,12 @@
     color: grey;
 }
 
+.schedule-cycle-aborted {
+    font-weight: normal;
+    color: red;
+    font-size: 0.85rem;
+}
+
 .schedule-sequences {
     display: flex;
     flex-direction: column;

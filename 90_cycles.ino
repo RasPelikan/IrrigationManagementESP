@@ -93,6 +93,7 @@ void checkForActiveCycles() {
   }
 
   // check all cycles
+  bool cycleStateChanged = false;
   for (uint8_t cycleIndex = 0; cycleIndex < numberOfCycles; ++cycleIndex) {
 
     // if cycle active, then check whether to deactivate
@@ -110,6 +111,7 @@ void checkForActiveCycles() {
 
         Serial.printf("Deactivating cycle %s\n", activeCycle->area->name);
         activeCycles[cycleIndex] = false;
+        cycleStateChanged = true;
         // reset tracking of how long irrigation happend
         if (activeCycle->area->resetOnActivation) {
           activeCycle->area->irrigatedPeriod = 0;
@@ -118,12 +120,19 @@ void checkForActiveCycles() {
       }
 
     }
-    // cycle needs to be activated
-    else if (calculatedCycles[cycleIndex] != NULL) {
+    // cycle needs to be activated (unless it was aborted by water shortage in this window)
+    else if (calculatedCycles[cycleIndex] != NULL && !cycles[cycleIndex].aborted) {
 
       Serial.printf("Activating cycle %s\n", calculatedCycles[cycleIndex]->area->name);
       activeCycles[cycleIndex] = true;
+      cycleStateChanged = true;
 
+    }
+
+    // window has ended (or never started in past 24h): drop the abort flag so the next scheduled occurrence runs
+    if (calculatedCycles[cycleIndex] == NULL && cycles[cycleIndex].aborted) {
+      cycles[cycleIndex].aborted = false;
+      cycleStateChanged = true;
     }
 
     // for active cycles check which valves have to be activated (if water is available)
@@ -132,6 +141,12 @@ void checkForActiveCycles() {
       checkForValvesOfCycle(&cycles[cycleIndex], valveStatus);
     }
 
+  }
+
+  // push cycle state changes that did not result in a valve change (e.g. abort flag clearing
+  // at the end of a window, or a fresh activation that opens no valves yet because of water shortage)
+  if (cycleStateChanged) {
+    updateStatusClients(STATUS_UPDATE_CYCLE);
   }
 
   // set active valves according to previous calculation
@@ -152,6 +167,40 @@ void checkForActiveCycles() {
 
   delete[] valveStatus;
   delete[] calculatedCycles;
+
+}
+
+void abortCyclesDueToWaterShortage() {
+
+  bool anyValveChanged = false;
+
+  // end all currently active cycles immediately. mirror the reset behavior of a natural cycle end
+  // (reset=true areas restart from 0 on next activation, reset=false areas continue from current position).
+  // the per-cycle aborted flag suppresses re-activation while we are still inside the cycle's time window.
+  for (uint8_t cycleIndex = 0; cycleIndex < numberOfCycles; ++cycleIndex) {
+    if (activeCycles[cycleIndex]) {
+      Cycle *cycle = &cycles[cycleIndex];
+      Serial.printf("Aborting cycle %s due to water shortage\n", cycle->area->name);
+      activeCycles[cycleIndex] = false;
+      cycle->aborted = true;
+      if (cycle->area->resetOnActivation) {
+        cycle->area->irrigatedPeriod = 0;
+      }
+    }
+  }
+
+  // close all currently open valves immediately so the pressure does not drain through them
+  for (uint8_t valveIndex = 0; valveIndex < numberOfValves; ++valveIndex) {
+    if (valves[valveIndex].active) {
+      Serial.printf("Deactivating valve %s due to water shortage\n", valves[valveIndex].id);
+      valves[valveIndex].active = false;
+      anyValveChanged = true;
+    }
+  }
+
+  if (anyValveChanged) {
+    switchValves();
+  }
 
 }
 
@@ -361,6 +410,7 @@ void handleGetSchedule(AsyncWebServerRequest *request) {
     cycleObj["start"] = startBuf;
     cycleObj["end"] = endBuf;
     cycleObj["active"] = activeCycles[c];
+    cycleObj["aborted"] = cycles[c].aborted;
 
     JsonObject areaObj = cycleObj["area"].to<JsonObject>();
     areaObj["name"] = area->name;
@@ -412,6 +462,14 @@ void addCycleStatus(JsonDocument &doc) {
         : "auto";
     valveObj["active"] = valves[i].active;
     valveObj["on"] = valves[i].on;
+  }
+
+  // dynamic cycle state (positions match the array returned by /api/irrigation/schedule)
+  JsonArray cyclesArray = doc[F("cycles")].to<JsonArray>();
+  for (uint8_t i = 0; i < numberOfCycles; ++i) {
+    JsonObject cycleObj = cyclesArray.add<JsonObject>();
+    cycleObj["active"] = activeCycles[i];
+    cycleObj["aborted"] = cycles[i].aborted;
   }
 
 }

@@ -42,6 +42,9 @@ void updateWaterLevel() {
 
       updateStatusClients(STATUS_UPDATE_WATERLEVEL);
       Serial.print(F("Waterlevel 0%"));
+
+      // close valves and end any active cycles before the pressure can drain through open valves
+      abortCyclesDueToWaterShortage();
     }
   } else if (digitalRead(GPIO_WATERLEVEL_1)) { // pulled-up means no water
     if (waterLevel != WATERLEVEL_1) {

@@ -392,6 +392,7 @@ bool readConfigFile(File configFile) {
       return false;
     }
     Cycle &cycle = cycles[i];
+    cycle.aborted = false;
 
     const char *docArea = docCycle["area"];
     cycle.area = NULL;

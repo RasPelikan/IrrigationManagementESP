@@ -55,4 +55,5 @@ struct Cycle {
   uint16_t start;
   uint16_t end;
   Area *area;
+  bool aborted;                    // true while inside its time window after a water-shortage abort; prevents re-activation until window ends
 };

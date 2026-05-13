@@ -36,6 +36,7 @@ interface ScheduleCycle {
   start: string;
   end: string;
   active: boolean;
+  aborted: boolean;
   area: {
     name: string;
     sequences: ScheduleSequence[];
@@ -71,6 +72,15 @@ const Status = ({}) => {
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
+    // merge the per-cycle active/aborted state pushed by the SSE channel into the schedule
+    // we already loaded; the schedule fetch only happens on connect/reconnect, and subsequent
+    // cycle state changes flow exclusively through the status updates.
+    const mergeCycleStates = (cyclesData: Array<{ active: boolean; aborted: boolean }>) => {
+      setScheduleCycles(prev => prev.map((c, i) => i < cyclesData.length
+          ? { ...c, active: cyclesData[i].active, aborted: cyclesData[i].aborted }
+          : c));
+    };
+
     const connect = () => {
       if (cancelled) return;
       const es = new EventSource('/api/status-events');
@@ -99,6 +109,9 @@ const Status = ({}) => {
         if (data['currentDate']) {
           currentDateRef.current = new Date(data['currentDate']).getTime();
         }
+        if (Array.isArray(data['cycles'])) {
+          mergeCycleStates(data['cycles']);
+        }
       });
       es.addEventListener('UPDATE', event => {
         const data = JSON.parse((event as MessageEvent).data);
@@ -109,6 +122,9 @@ const Status = ({}) => {
         if (data['wellPumpMode'] !== undefined) setPendingWellPump(false);
         if (data['irrigationPumpMode'] !== undefined) setPendingIrrigationPump(false);
         if (data['valves'] !== undefined) { setPendingValves(new Set()); setPendingAllValves(false); }
+        if (Array.isArray(data['cycles'])) {
+          mergeCycleStates(data['cycles']);
+        }
       });
     };
 
@@ -178,6 +194,8 @@ const Status = ({}) => {
   };
 
   const [ scheduleCycles, setScheduleCycles ] = useState<ScheduleCycle[]>([]);
+  // load schedule (sequence definitions, simulated start times) only on (re)connect; the per-cycle
+  // active/aborted state is then kept fresh through the SSE status updates
   useEffect(() => {
     if (!connected) return;
     fetch('/api/irrigation/schedule')
@@ -392,6 +410,7 @@ const Status = ({}) => {
                     {
                       (() => {
                         const activeCycles = scheduleCycles.filter(c => c.active);
+                        const abortedCycles = scheduleCycles.filter(c => c.aborted);
                         if (activeCycles.length > 0) {
                           return activeCycles.map((cycle, i) => {
                             const activeSeq = cycle.area.sequences.find(s => s.startTime !== undefined);
@@ -405,6 +424,16 @@ const Status = ({}) => {
                                   </div>
                                 </div>);
                           });
+                        }
+                        if (abortedCycles.length > 0) {
+                          return abortedCycles.map((cycle, i) => (
+                              <div key={i}>
+                                <div>
+                                  <div className="led-off led-flashing-red"></div>
+                                  &nbsp;
+                                  {cycle.area.name}: aborted (water shortage)
+                                </div>
+                              </div>));
                         }
                         const nextCycle = scheduleCycles.find(c => !c.active);
                         if (nextCycle) {

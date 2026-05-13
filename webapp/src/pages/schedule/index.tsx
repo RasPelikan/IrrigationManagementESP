@@ -20,6 +20,7 @@ interface ScheduleCycle {
   start: string;
   end: string;
   active: boolean;
+  aborted: boolean;
   area: ScheduleArea;
 }
 
@@ -65,13 +66,22 @@ const Schedule = ({}) => {
                       {
                         cycle.active
                             ? <div className="led-off led-blinking-green"></div>
-                            : <div className="led-off led-grey"></div>
+                            : cycle.aborted
+                                ? <div className="led-off led-flashing-red"></div>
+                                : <div className="led-off led-grey"></div>
                       }
                       &nbsp;
                       {cycle.area.name}
                       <span className="schedule-cycle-time">
                         {formatTime(cycle.start)} - {formatTime(cycle.end)}
                       </span>
+                      {
+                        cycle.aborted
+                            ? <span className="schedule-cycle-aborted">
+                                aborted (water shortage)
+                              </span>
+                            : undefined
+                      }
                     </div>
                     <div className="schedule-sequences">
                       {
