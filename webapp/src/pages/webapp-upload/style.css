@@ -1,15 +1,76 @@
 .webappupload-main {
     display: flex;
     flex-direction: column;
-}
-
-.webappupload-main > form {
-    flex-grow: 1;
-    flex-shrink: 1;
-    display: flex;
-    flex-direction: column;
     gap: 0.5rem;
 }
 
-.file-label {
+.webappupload-pickers {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.webappupload-picker {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid lightgrey;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    background-color: #f5f5f5;
+}
+
+.webappupload-picker:hover {
+    background-color: #ebebeb;
+}
+
+.webappupload-picker > input[type="file"] {
+    display: none;
+}
+
+.webappupload-empty {
+    color: grey;
+    font-style: italic;
+}
+
+.webappupload-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.webappupload-list > li {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px solid lightgrey;
+    border-radius: 0.25rem;
+    padding: 0.25rem 0.5rem;
+}
+
+.webappupload-name {
+    flex-grow: 1;
+    font-family: monospace;
+    word-break: break-all;
+}
+
+.webappupload-size {
+    color: grey;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.webappupload-error {
+    color: red;
+    font-weight: bold;
+}
+
+.webappupload-ok {
+    color: green;
+    font-weight: bold;
 }
