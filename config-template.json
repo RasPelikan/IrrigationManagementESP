@@ -13,7 +13,8 @@
     "well": {
       "cycle": {
         "on": 45,
-        "off": 15
+        "off": 15,
+        "overfill": 300
       }
     },
     "irrigation": {

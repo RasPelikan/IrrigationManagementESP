@@ -20,9 +20,10 @@ interface ImStatus {
   waterPressureAdc?: number;
   irrigationPump: 'active' | 'inactive' | 'out-of-water';
   irrigationPumpMode: 'off' | 'auto';
-  wellPump: 'active-cycle' | 'inactive-cycle' | 'inactive';
+  wellPump: 'active-cycle' | 'active-overfill' | 'inactive-cycle' | 'inactive';
   wellPumpMode: 'on' | 'off' | 'auto';
   wellPumpCycle?: number;
+  wellPumpOverfill?: number;
   valves?: Valve[];
 }
 
@@ -44,6 +45,12 @@ interface ScheduleCycle {
 }
 
 const formatTime = (time: string) => time.substring(0, 2) + ':' + time.substring(2);
+
+const formatSeconds = (seconds: number) => {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+};
 
 const Status = ({}) => {
   const { setPageTitle } = useContext(AppContext);
@@ -319,7 +326,7 @@ const Status = ({}) => {
                     <div>
                       <div>
                         {
-                          status.wellPump === "active-cycle"
+                          status.wellPump === "active-cycle" || status.wellPump === "active-overfill"
                               ? <div className="led-off led-blinking-yellow"></div>
                               : status.wellPump === "inactive-cycle"
                                   ? <div className="led-off led-flashing-yellow"></div>
@@ -327,11 +334,13 @@ const Status = ({}) => {
                         }
                         &nbsp;
                         {
-                          status.wellPump === "active-cycle"
-                              ? `active ${ status.wellPumpCycle === 0 ? '' : `(${status.wellPumpCycle} mins)` }`
-                              : status.wellPump === "inactive-cycle"
-                                  ? `inactive ${ status.wellPumpCycle === 0 ? '' : `(${status.wellPumpCycle} mins)` }`
-                                  : "off"
+                          status.wellPump === "active-overfill"
+                              ? `overfilling ${ status.wellPumpOverfill ? `(${status.wellPumpOverfill}s)` : '' }`
+                              : status.wellPump === "active-cycle"
+                                  ? `active ${ !status.wellPumpCycle ? '' : `(${formatSeconds(status.wellPumpCycle)})` }`
+                                  : status.wellPump === "inactive-cycle"
+                                      ? `inactive ${ !status.wellPumpCycle ? '' : `(${formatSeconds(status.wellPumpCycle)})` }`
+                                      : "off"
                         }
                       </div>
                       <div>

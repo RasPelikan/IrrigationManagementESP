@@ -169,6 +169,13 @@ bool readConfigFile(File configFile) {
     setError("Config JSON has no or empty value 'pumps.well.cycle.off'!");
     return false;
   }
+  // Overfill is optional — 0 / missing means feature disabled
+  JsonVariant docOverfill = docWellPumpCycleConfig["overfill"];
+  if (docOverfill.isNull()) {
+    irrigationConfig.wellPumpCycleOverfill = 0;
+  } else {
+    irrigationConfig.wellPumpCycleOverfill = docOverfill.as<uint16_t>();
+  }
   JsonObject docIrrigationPumpConfig = docPumpsConfig["irrigation"];
   if (docIrrigationPumpConfig.isNull()) {
     setError("Config JSON has no or empty section 'pumps.irrigation'!");

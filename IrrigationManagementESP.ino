@@ -138,6 +138,13 @@ void loop() {
     // 3. control irrigation pump immediately
     controlIrrigationPump();
 
+    // 4. control well pump (seconds granularity — needed for prompt response to
+    //    FULL detection and overfill timing). tickWellPumpOverfill is invoked
+    //    from inside controlWellPump's flow indirectly via the same per-second
+    //    cadence, so the dedicated call below covers the countdown decrement.
+    controlWellPump();
+    tickWellPumpOverfill();
+
     if (now != 0) {  // wait for first NTP update
       time(&now);    // this function calls the NTP server only every hour
       localtime_r(&now, &tm_now);
@@ -148,9 +155,6 @@ void loop() {
     if (tm_now.tm_min != lastMinute) { // every minute
       lastMinute = tm_now.tm_min;
       printTime(now);
-
-      // 4. controll well pump
-      controlWellPump();
 
       // 5. do irrigation cycles
       checkForActiveCycles();

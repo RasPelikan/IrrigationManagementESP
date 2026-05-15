@@ -14,6 +14,7 @@ struct IrrigationConfig {
   uint16_t irrigationPumpHysteresis; // seconds
   uint16_t wellPumpCycleOn;   // minutes
   uint16_t wellPumpCycleOff;  // minutes
+  uint16_t wellPumpCycleOverfill; // seconds (0 = disabled)
   uint16_t waterLevelHysteresis; // seconds
   uint16_t waterPressureLow;  // ADC value
   uint16_t waterPressureHigh; // ADC value

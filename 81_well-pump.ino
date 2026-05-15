@@ -5,13 +5,14 @@
 
 bool wellPumpActive = false;
 uint8_t wellPumpMode = MODE_WELLPUMP_AUTO;
-uint8_t wellPumpInterval = 0;
+uint16_t wellPumpInterval = 0; // seconds — counts down to next on/off transition
+uint16_t wellPumpOverfillCountdown = 0; // seconds — pump keeps running after FULL is reached
 
 void setupWellPump() {
 
   // means that the sleep interval is waited for at startup to ensure
   // that the sleep interval is adhered to
-  wellPumpInterval = irrigationConfig.wellPumpCycleOff;
+  wellPumpInterval = irrigationConfig.wellPumpCycleOff * 60;
 
   pinMode(GPIO_WELLPUMP_LED, OUTPUT);
 
@@ -43,28 +44,35 @@ void activateOrDeactivateWellPumpIfContainerIsNotFull() {
     updateStatusClients(STATUS_UPDATE_WELLPUMP);
   }
 
-  if (waterLevel == WATERLEVEL_FULL) {
-    return;
-  }
-
-  if (wellPumpMode == MODE_WELLPUMP_ON) {
-    if (!wellPumpActive) {
-      switchOnWellPump();
-    } else if (wellPumpInterval == 0) {
-      switchOffWellPump(false);
-    }
-    return;
-  } else if (wellPumpMode == MODE_WELLPUMP_OFF) {
+  if (wellPumpMode == MODE_WELLPUMP_OFF) {
     if (wellPumpActive) {
       switchOffWellPump(false);
     }
     return;
-  } else if (wellPumpInterval > 0) {
+  }
+
+  if (wellPumpMode == MODE_WELLPUMP_ON) {
+    // Manual ON ignores the 15-min wait and the FULL state. switchOffWellPumpIfContainerIsFull
+    // and tickWellPumpOverfill handle the safety stop when waterLevel reaches FULL.
+    if (!wellPumpActive) {
+      switchOnWellPump();
+    } else if (wellPumpInterval == 0) {
+      // 45-min manual ON cycle finished — revert to AUTO and start 15-min wait.
+      wellPumpMode = MODE_WELLPUMP_AUTO;
+      switchOffWellPump(true);
+      Serial.println(F("Manual ON cycle completed — switched to AUTO"));
+    }
     return;
   }
 
-  // after interval completed switch well pump on or off
-  wellPumpMode = MODE_WELLPUMP_AUTO;
+  // AUTO mode below — respects the 15-min wait and the FULL state
+  if (waterLevel == WATERLEVEL_FULL) {
+    return;
+  }
+  if (wellPumpInterval > 0) {
+    return;
+  }
+
   if (wellPumpActive) {
     switchOffWellPump(true);
   } else {
@@ -77,7 +85,7 @@ void switchOnWellPump() {
 
     wellPumpActive = true;
     digitalWrite(GPIO_WELLPUMP, RELAIS_ON);
-    wellPumpInterval = irrigationConfig.wellPumpCycleOn;
+    wellPumpInterval = irrigationConfig.wellPumpCycleOn * 60;
 
     updateStatusClients(STATUS_UPDATE_WELLPUMP);
 
@@ -90,9 +98,10 @@ void switchOnWellPump() {
 void switchOffWellPump(bool setInterval) {
 
     wellPumpActive = false;
+    wellPumpOverfillCountdown = 0;
     digitalWrite(GPIO_WELLPUMP, RELAIS_OFF);
     if (setInterval) {
-      wellPumpInterval = irrigationConfig.wellPumpCycleOff;
+      wellPumpInterval = irrigationConfig.wellPumpCycleOff * 60;
     } else {
       wellPumpInterval = 0;
     }
@@ -112,23 +121,71 @@ void switchOffWellPump(bool setInterval) {
 void switchOffWellPumpIfContainerIsFull() {
 
     // if container is full, then switch off well pump
-    if (waterLevel == WATERLEVEL_FULL) {
-
-      if (wellPumpActive) {
-
-        wellPumpMode = MODE_WELLPUMP_AUTO;
-        switchOffWellPump(true);
-
-        Serial.println(F("Switched off well pump because container is full"));
-
-      } else if (wellPumpMode == MODE_WELLPUMP_AUTO) {
-
-        Serial.println(F("Disable well pump because container is full"));
-
-      }
-
+    if (waterLevel != WATERLEVEL_FULL) {
+      return;
     }
 
+    if (wellPumpActive) {
+
+      // If overfill is configured and not already running, enter the overfill phase
+      // instead of stopping immediately. The pump keeps running for X seconds so the
+      // water can settle across the connected IBC containers.
+      if (irrigationConfig.wellPumpCycleOverfill > 0 && wellPumpOverfillCountdown == 0) {
+        wellPumpOverfillCountdown = irrigationConfig.wellPumpCycleOverfill;
+        updateStatusClients(STATUS_UPDATE_WELLPUMP);
+        Serial.print(F("Container full — entering overfill phase for "));
+        Serial.print(wellPumpOverfillCountdown);
+        Serial.println(F("s"));
+      } else if (wellPumpOverfillCountdown == 0) {
+        // No overfill configured — stop immediately as before.
+        // Force AUTO: see comment in tickWellPumpOverfill().
+        wellPumpMode = MODE_WELLPUMP_AUTO;
+        switchOffWellPump(true);
+        Serial.println(F("Switched off well pump because container is full"));
+      }
+      // If overfill countdown is already running, do nothing —
+      // tickWellPumpOverfill() will stop the pump when the countdown expires.
+
+    }
+    // Pump not active + FULL: nothing to do; the AUTO cycle will wait for the
+    // level to drop. (No log here — the per-second cadence would spam Serial.)
+
+}
+
+// Called once per second. Decrements the overfill countdown and stops the pump
+// when it reaches zero.
+void tickWellPumpOverfill() {
+
+  if (wellPumpOverfillCountdown == 0) {
+    return;
+  }
+
+  --wellPumpOverfillCountdown;
+
+  if (wellPumpOverfillCountdown == 0) {
+    if (wellPumpActive) {
+      // Force AUTO so the 15-min wait set by switchOffWellPump(true) is actually
+      // respected: in MODE_WELLPUMP_ON the cycle logic would restart the pump
+      // immediately as soon as waterLevel drops below FULL, bypassing the wait.
+      // Same safety override as switchOffWellPumpIfContainerIsFull.
+      wellPumpMode = MODE_WELLPUMP_AUTO;
+      switchOffWellPump(true);
+      Serial.println(F("Overfill phase completed — switched off well pump"));
+    }
+  } else {
+    updateStatusClients(STATUS_UPDATE_WELLPUMP);
+  }
+
+}
+
+// Abort any running overfill phase (e.g. when the user changes mode manually
+// or when the water level drops far enough that overfilling no longer applies).
+void cancelWellPumpOverfill() {
+  if (wellPumpOverfillCountdown > 0) {
+    Serial.println(F("Overfill phase cancelled"));
+    wellPumpOverfillCountdown = 0;
+    updateStatusClients(STATUS_UPDATE_WELLPUMP);
+  }
 }
 
 void blinkWellPumpLed() {
@@ -154,31 +211,61 @@ void blinkWellPumpLed() {
 void handleWellPumpMode(AsyncWebServerRequest *request) {
 
   request->send(200, F("text/plain"), F(""));
-  if (request->hasParam(MODE_WELLPUMP_PARAM, true)) {
-    String value = request->getParam(MODE_WELLPUMP_PARAM, true)->value();
-    bool updated = false;
-    if (value.equals(F("auto")) && (wellPumpMode != MODE_WELLPUMP_AUTO)) {
-      wellPumpMode = MODE_WELLPUMP_AUTO;
-      updated = true;
-    } else if (value.equals(F("on")) && (wellPumpMode != MODE_WELLPUMP_ON)) {
-      wellPumpMode = MODE_WELLPUMP_ON;
-      updated = true;
-    } else if (value.equals(F("off")) && (wellPumpMode != MODE_WELLPUMP_OFF)) {
-      wellPumpMode = MODE_WELLPUMP_OFF;
-      updated = true;
-    }
-    if (updated) {
-      updateStatusClients(STATUS_UPDATE_WELLPUMP);
-      controlWellPump();
-    }
+  if (!request->hasParam(MODE_WELLPUMP_PARAM, true)) {
+    return;
   }
+  String value = request->getParam(MODE_WELLPUMP_PARAM, true)->value();
+
+  if (value.equals(F("off"))) {
+    // OFF: stop immediately, regardless of cycle state or waterLevel.
+    wellPumpMode = MODE_WELLPUMP_OFF;
+    if (wellPumpActive) {
+      switchOffWellPump(false);
+    } else {
+      cancelWellPumpOverfill();
+    }
+    Serial.println(F("Well pump: manual OFF"));
+  } else if (value.equals(F("on"))) {
+    // ON: start (or restart 45-min countdown), regardless of waterLevel or wait.
+    // At WATERLEVEL_FULL the overfill safety in switchOffWellPumpIfContainerIsFull
+    // will stop the pump after the configured overfill duration.
+    wellPumpMode = MODE_WELLPUMP_ON;
+    cancelWellPumpOverfill();
+    if (!wellPumpActive) {
+      switchOnWellPump();
+    } else {
+      wellPumpInterval = irrigationConfig.wellPumpCycleOn * 60;
+      updateStatusClients(STATUS_UPDATE_WELLPUMP);
+    }
+    Serial.print(F("Well pump: manual ON for "));
+    Serial.print(irrigationConfig.wellPumpCycleOn);
+    Serial.println(F(" minutes"));
+  } else if (value.equals(F("auto"))) {
+    wellPumpMode = MODE_WELLPUMP_AUTO;
+    cancelWellPumpOverfill();
+    Serial.println(F("Well pump: AUTO"));
+  } else {
+    return;
+  }
+  updateStatusClients(STATUS_UPDATE_WELLPUMP);
 
 }
 
 void addWellPumpStatus(JsonDocument &doc) {
 
-  doc[F("wellPump")] = wellPumpActive ? F("active-cycle") : wellPumpInterval > 0 ? F("inactive-cycle") : F("inactive");
+  const char *state;
+  if (wellPumpOverfillCountdown > 0) {
+    state = "active-overfill";
+  } else if (wellPumpActive) {
+    state = "active-cycle";
+  } else if (wellPumpInterval > 0) {
+    state = "inactive-cycle";
+  } else {
+    state = "inactive";
+  }
+  doc[F("wellPump")] = state;
   doc[F("wellPumpCycle")] = wellPumpInterval;
+  doc[F("wellPumpOverfill")] = wellPumpOverfillCountdown;
   doc[F("wellPumpMode")] = wellPumpMode == 0 ? F("auto") : wellPumpMode == 1 ? F("on") : F("off");
 
 }
