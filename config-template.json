@@ -1,14 +1,4 @@
 {
-  "wifi": {
-    "sid": "012345678901234567890123456789",
-    "pwd": "012345678901234567890123456789",
-    "port": 10,
-    "mac": "1C7F2C63A358"
-  },
-  "http": {
-    "username": "im",
-    "password": "Secure_123"
-  },
   "location": {
     "latitude": 48.2082,
     "longitude": 16.3738
