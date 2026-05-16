@@ -19,7 +19,6 @@
 }
 
 .status-table > tbody > tr > td:nth-child(2) > div {
-    height: 2rem;
     display: flex;
     flex-direction: row;
     align-items: center;

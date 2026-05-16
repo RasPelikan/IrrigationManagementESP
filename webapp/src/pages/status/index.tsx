@@ -20,10 +20,19 @@ interface ImStatus {
   waterPressureAdc?: number;
   irrigationPump: 'active' | 'inactive' | 'out-of-water';
   irrigationPumpMode: 'off' | 'auto';
-  wellPump: 'active-cycle' | 'active-overfill' | 'inactive-cycle' | 'inactive';
+  wellPump: 'active-cycle' | 'active-overfill' | 'inactive-cycle' | 'inactive-daylight' | 'inactive';
   wellPumpMode: 'on' | 'off' | 'auto';
   wellPumpCycle?: number;
   wellPumpOverfill?: number;
+  // true iff a "location" is configured on the device — present from the very
+  // first SSE message, so the "Pump times:" row can render a placeholder while
+  // NTP/sun calculation hasn't produced numbers yet.
+  daylightEnabled?: boolean;
+  // Daylight pump window — appear once NTP has synced and times have been
+  // computed. "HH:MM" each.
+  daylightFrom?: string;
+  daylightTo?: string;
+  daylightDuration?: string;
   valves?: Valve[];
 }
 
@@ -308,6 +317,22 @@ const Status = ({}) => {
                     </div>
                   </td>
                 </tr>
+                {
+                  status.daylightEnabled
+                      ? <tr>
+                          <td>Pump times:</td>
+                          <td>
+                            <div>
+                              {
+                                status.daylightFrom && status.daylightTo && status.daylightDuration
+                                    ? `${status.daylightFrom}–${status.daylightTo} (${status.daylightDuration})`
+                                    : "calculating…"
+                              }
+                            </div>
+                          </td>
+                        </tr>
+                      : undefined
+                }
                 <tr>
                   <td>Pressure:</td>
                   <td>
@@ -340,7 +365,9 @@ const Status = ({}) => {
                                   ? `active ${ !status.wellPumpCycle ? '' : `(${formatSeconds(status.wellPumpCycle)})` }`
                                   : status.wellPump === "inactive-cycle"
                                       ? `inactive ${ !status.wellPumpCycle ? '' : `(${formatSeconds(status.wellPumpCycle)})` }`
-                                      : "off"
+                                      : status.wellPump === "inactive-daylight"
+                                          ? `daylight (${status.daylightFrom ?? '?'}–${status.daylightTo ?? '?'})`
+                                          : "off"
                         }
                       </div>
                       <div>
@@ -489,7 +516,7 @@ const Status = ({}) => {
                   <td>
                     {
                       status.valves?.map((valve, valveIndex) =>
-                          <div>
+                          <div style="margin-bottom: 0.25rem">
                             <div>
                               {
                                 valve.on

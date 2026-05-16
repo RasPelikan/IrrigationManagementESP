@@ -65,10 +65,25 @@ void activateOrDeactivateWellPumpIfContainerIsNotFull() {
     return;
   }
 
-  // AUTO mode below — respects the 15-min wait and the FULL state
+  // AUTO mode below — respects the 15-min wait, the FULL state, and (if
+  // location is configured) the PV-aligned daylight window.
   if (waterLevel == WATERLEVEL_FULL) {
     return;
   }
+
+  // Daylight gating: in AUTO, only fill containers during the productive PV
+  // window. If we're outside the window we stop a running pump immediately —
+  // continuing past sunset would waste battery/grid power, which is exactly
+  // what this feature is meant to prevent. Manual ON is intentionally
+  // unaffected (handled in the MODE_WELLPUMP_ON branch above).
+  if (!isInDaylightWindow()) {
+    if (wellPumpActive) {
+      switchOffWellPump(true);
+      Serial.println(F("Daylight window ended — switching off well pump"));
+    }
+    return;
+  }
+
   if (wellPumpInterval > 0) {
     return;
   }
@@ -253,11 +268,20 @@ void handleWellPumpMode(AsyncWebServerRequest *request) {
 
 void addWellPumpStatus(JsonDocument &doc) {
 
+  // inactive-daylight is reported only in AUTO and only when the daylight
+  // feature is configured — manual ON/OFF semantics stay verbatim.
+  const bool daylightBlock = irrigationConfig.daylightEnabled
+      && wellPumpMode == MODE_WELLPUMP_AUTO
+      && waterLevel != WATERLEVEL_FULL
+      && !isInDaylightWindow();
+
   const char *state;
   if (wellPumpOverfillCountdown > 0) {
     state = "active-overfill";
   } else if (wellPumpActive) {
     state = "active-cycle";
+  } else if (daylightBlock) {
+    state = "inactive-daylight";
   } else if (wellPumpInterval > 0) {
     state = "inactive-cycle";
   } else {
@@ -267,5 +291,34 @@ void addWellPumpStatus(JsonDocument &doc) {
   doc[F("wellPumpCycle")] = wellPumpInterval;
   doc[F("wellPumpOverfill")] = wellPumpOverfillCountdown;
   doc[F("wellPumpMode")] = wellPumpMode == 0 ? F("auto") : wellPumpMode == 1 ? F("on") : F("off");
+
+  // daylightEnabled is sent unconditionally so the webapp can render the
+  // "Pump times:" row with a "calculating…" placeholder from the very first
+  // SSE message — before NTP/sunrise calc has produced actual values.
+  doc[F("daylightEnabled")] = irrigationConfig.daylightEnabled;
+
+  // Surface today's permitted-pumping window (sunrise+startOffset .. sunset-endOffset)
+  // to the webapp. The user only cares about *when the well pump may run*, not
+  // about astronomical sunrise/sunset — so we ship the window endpoints + duration
+  // pre-formatted. Skip when not yet computed (NTP pending) or when the offsets
+  // collapse the window to empty — the webapp keeps showing "calculating…" until
+  // these fields arrive.
+  if (irrigationConfig.daylightEnabled
+      && sunriseLocalMin >= 0 && sunsetLocalMin >= 0) {
+    int windowStart = sunriseLocalMin + (int)irrigationConfig.wellPumpDaylightStartOffsetMin;
+    int windowEnd   = sunsetLocalMin  - (int)irrigationConfig.wellPumpDaylightEndOffsetMin;
+    if (windowStart < windowEnd && windowStart >= 0 && windowEnd <= 1440) {
+      int durationMin = windowEnd - windowStart;
+      char fromBuf[6];      // HH:MM
+      char toBuf[6];        // HH:MM
+      char durationBuf[6];  // HH:MM
+      snprintf(fromBuf,     sizeof fromBuf,     "%02d:%02d", windowStart / 60, windowStart % 60);
+      snprintf(toBuf,       sizeof toBuf,       "%02d:%02d", windowEnd   / 60, windowEnd   % 60);
+      snprintf(durationBuf, sizeof durationBuf, "%02d:%02d", durationMin / 60, durationMin % 60);
+      doc[F("daylightFrom")]     = fromBuf;
+      doc[F("daylightTo")]       = toBuf;
+      doc[F("daylightDuration")] = durationBuf;
+    }
+  }
 
 }

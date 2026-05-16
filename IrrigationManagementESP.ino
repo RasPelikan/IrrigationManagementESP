@@ -156,6 +156,11 @@ void loop() {
       lastMinute = tm_now.tm_min;
       printTime(now);
 
+      // Cheap no-op once per day after the first compute; we need it to run at
+      // least once after NTP becomes available, and again across the day-change
+      // boundary, so the per-minute cadence is the natural fit.
+      recomputeSunTimes();
+
       // 5. do irrigation cycles
       checkForActiveCycles();
 

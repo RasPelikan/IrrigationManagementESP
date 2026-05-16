@@ -15,6 +15,14 @@ struct IrrigationConfig {
   uint16_t wellPumpCycleOn;   // minutes
   uint16_t wellPumpCycleOff;  // minutes
   uint16_t wellPumpCycleOverfill; // seconds (0 = disabled)
+  // Daylight gating for the well pump in AUTO mode: pump only fills the
+  // containers during the productive PV window. daylightEnabled is implicit —
+  // set true iff the optional "location" section parses successfully.
+  bool daylightEnabled;
+  float locationLatitude;             // decimal degrees, north positive
+  float locationLongitude;            // decimal degrees, east positive
+  uint16_t wellPumpDaylightStartOffsetMin; // minutes after sunrise
+  uint16_t wellPumpDaylightEndOffsetMin;   // minutes before sunset
   uint16_t waterLevelHysteresis; // seconds
   uint16_t waterPressureLow;  // ADC value
   uint16_t waterPressureHigh; // ADC value

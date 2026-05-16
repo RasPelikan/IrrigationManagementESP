@@ -9,12 +9,20 @@
     "username": "im",
     "password": "Secure_123"
   },
+  "location": {
+    "latitude": 48.2082,
+    "longitude": 16.3738
+  },
   "pumps": {
     "well": {
       "cycle": {
         "on": 45,
         "off": 15,
         "overfill": 300
+      },
+      "daylight": {
+        "startOffsetMin": 60,
+        "endOffsetMin": 60
       }
     },
     "irrigation": {

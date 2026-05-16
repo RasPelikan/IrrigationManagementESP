@@ -142,6 +142,35 @@ bool readConfigFile(File configFile) {
   }
   wifiConfig.mac = NULL;
 
+  // LOCATION (optional — enables daylight-gated well pump in AUTO mode)
+  // We accept the section only if both latitude and longitude parse to non-zero
+  // floats. Missing or partial → feature stays disabled (backwards compatible).
+
+  irrigationConfig.daylightEnabled = false;
+  irrigationConfig.locationLatitude = 0.0f;
+  irrigationConfig.locationLongitude = 0.0f;
+  JsonObject docLocation = doc["location"];
+  if (!docLocation.isNull()) {
+    JsonVariant docLat = docLocation["latitude"];
+    JsonVariant docLon = docLocation["longitude"];
+    if (!docLat.isNull() && !docLon.isNull()) {
+      float lat = docLat.as<float>();
+      float lon = docLon.as<float>();
+      if (lat >= -90.0f && lat <= 90.0f && lon >= -180.0f && lon <= 180.0f
+          && !(lat == 0.0f && lon == 0.0f)) {
+        irrigationConfig.locationLatitude = lat;
+        irrigationConfig.locationLongitude = lon;
+        irrigationConfig.daylightEnabled = true;
+      } else {
+        setError("Config JSON value 'location.latitude'/'location.longitude' out of range or zero!");
+        return false;
+      }
+    } else {
+      setError("Config JSON section 'location' requires both 'latitude' and 'longitude'!");
+      return false;
+    }
+  }
+
   // PUMPS
 
   JsonObject docPumpsConfig = doc["pumps"];
@@ -175,6 +204,20 @@ bool readConfigFile(File configFile) {
     irrigationConfig.wellPumpCycleOverfill = 0;
   } else {
     irrigationConfig.wellPumpCycleOverfill = docOverfill.as<uint16_t>();
+  }
+  // Daylight offsets are optional — only consumed when the top-level "location"
+  // section is present (parsed below). Defaults: 60min after sunrise, 60min
+  // before sunset, per the PV-utilisation tuning the user asked for.
+  irrigationConfig.wellPumpDaylightStartOffsetMin = 60;
+  irrigationConfig.wellPumpDaylightEndOffsetMin = 60;
+  JsonObject docDaylight = docWellPumpConfig["daylight"];
+  if (!docDaylight.isNull()) {
+    if (!docDaylight["startOffsetMin"].isNull()) {
+      irrigationConfig.wellPumpDaylightStartOffsetMin = docDaylight["startOffsetMin"].as<uint16_t>();
+    }
+    if (!docDaylight["endOffsetMin"].isNull()) {
+      irrigationConfig.wellPumpDaylightEndOffsetMin = docDaylight["endOffsetMin"].as<uint16_t>();
+    }
   }
   JsonObject docIrrigationPumpConfig = docPumpsConfig["irrigation"];
   if (docIrrigationPumpConfig.isNull()) {
