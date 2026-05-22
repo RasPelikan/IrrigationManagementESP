@@ -118,30 +118,26 @@ void onWifiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
   setupIrrigationPumpEndpoints();
   setupIrrigationEndpoints();
   httpRestServer.onNotFound(handleNotFound);
-  // The static tree is split so the PWA can install on Android:
-  //   - /assets/index-*  (compiled webapp bundle): auth-protected.
-  //   - everything else  (HTML shell, sw.js, manifest, icons): public.
-  // Chrome on Android can't show a Basic Auth dialog inside a PWA standalone
-  // window, so manifest, icons and sw.js need to be reachable without auth or
-  // the install icon stays blank and the launched window stays empty. The
-  // bundle URL prefix `/assets/index` matches Vite's hashed output filenames
-  // (assets/index-XXXXXXXX.{js,css}) — handler registration order matters
-  // because AsyncWebServer dispatches in registration order.
-  AsyncStaticWebHandler &codeHandler = httpRestServer
-      .serveStatic("/assets/index", LittleFS, "/www/assets/index")
-      .setCacheControl("no-cache, no-store, max-age=0");
-  AsyncStaticWebHandler &publicHandler = httpRestServer
+  // All static webapp files (HTML shell, JS bundle, sw.js, manifest, icons)
+  // are served publicly. The security boundary is the API: /api/* and /update
+  // are auth-protected. The JS bundle contains no secrets — only UI code that
+  // calls /api/ which IS auth-protected.
+  //
+  // Why not protect the bundle as well? With auth on /assets/index-*.js the
+  // browser is challenged when it loads the bundle, caches Basic creds with
+  // protection space `/assets/`, and then prompts AGAIN when the JS opens an
+  // EventSource on /api/* (different path prefix, and Chrome historically
+  // doesn't auto-retry SSE with cached creds even when the realm matches).
+  // On Android, that second prompt also misses the credential autofill.
+  // Single static handler = single auth prompt (raised by /api/).
+  if (wifiConfig.httpUsername != NULL && wifiConfig.httpPassword == NULL) {
+    setError("Config JSON has no or empty value 'http.password'!");
+    Serial.println(error);
+  }
+  httpRestServer
       .serveStatic("/", LittleFS, "/www/")
       .setDefaultFile("index.html")
       .setCacheControl("no-cache, no-store, max-age=0");
-  if (wifiConfig.httpUsername != NULL) {
-    if (wifiConfig.httpPassword == NULL) {
-      setError("Config JSON has no or empty value 'http.password'!");
-      Serial.println(error);
-    } else {
-      codeHandler.setAuthentication(wifiConfig.httpUsername, wifiConfig.httpPassword);
-    }
-  }
 
   setupNtp();
   setWebAppStatusEndpoints();
