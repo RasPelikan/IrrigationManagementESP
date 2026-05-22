@@ -253,6 +253,8 @@ void updateStatusClients(uint8_t what) {
   JsonDocument doc;
   if (what == STATUS_UPDATE_ALL) {
     doc[F("heapAfterSetup")] = heapAfterSetup;
+    doc[F("firmwareBuildTime")] = FIRMWARE_BUILD_TIME;
+    doc[F("firmwareGitCommit")] = FIRMWARE_GIT_COMMIT;
   }
   if (what & STATUS_UPDATE_ERROR) {
     doc[F("error")] = error;

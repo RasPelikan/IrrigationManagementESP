@@ -1,5 +1,6 @@
 data
 build
+build_info.h
 .DS_Store
 
 # arduino-cli config (generated; toolchain itself lives in ~/Library/Arduino15-IrrigationManagementESP/)

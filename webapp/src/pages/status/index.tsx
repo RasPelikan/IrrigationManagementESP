@@ -15,6 +15,9 @@ interface ImStatus {
   rssi?: number;
   heapAfterSetup?: number;
   heap?: number;
+  // Firmware build provenance — only sent on the INIT event.
+  firmwareBuildTime?: string;
+  firmwareGitCommit?: string;
   waterLevel?: string;
   waterPressure?: number;
   waterPressureAdc?: number;
@@ -59,6 +62,14 @@ const formatSeconds = (seconds: number) => {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
+};
+
+// Render an ISO timestamp in the user's locale; pass anything else through
+// untouched (the firmware fallback `__DATE__ " " __TIME__` is not ISO).
+const formatBuildTime = (value: string | undefined) => {
+  if (!value) return '?';
+  const date = new Date(value);
+  return isNaN(date.getTime()) ? value : date.toLocaleString();
 };
 
 const Status = ({}) => {
@@ -563,6 +574,14 @@ const Status = ({}) => {
               </table>
               : <div>Connecting....</div>
         }
+        <div className="build-info">
+          <div>
+            Firmware: { formatBuildTime(status?.firmwareBuildTime) } ({ status?.firmwareGitCommit ?? '?' })
+          </div>
+          <div>
+            Webapp: { formatBuildTime(__WEBAPP_BUILD_TIME__) } ({ __WEBAPP_GIT_COMMIT__ })
+          </div>
+        </div>
       </div>
   );
 };
