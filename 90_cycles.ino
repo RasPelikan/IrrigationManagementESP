@@ -189,8 +189,14 @@ void abortCyclesDueToWaterShortage() {
     }
   }
 
-  // close all currently open valves immediately so the pressure does not drain through them
+  // close all currently open valves immediately so the pressure does not drain through them.
+  // manually-on valves are reset to AUTO as well, otherwise switchValves() would re-open them right away.
   for (uint8_t valveIndex = 0; valveIndex < numberOfValves; ++valveIndex) {
+    if (valves[valveIndex].mode == VALVE_MODE_ON) {
+      Serial.printf("Resetting valve %s from ON to AUTO due to water shortage\n", valves[valveIndex].id);
+      valves[valveIndex].mode = VALVE_MODE_AUTO;
+      anyValveChanged = true;
+    }
     if (valves[valveIndex].active) {
       Serial.printf("Deactivating valve %s due to water shortage\n", valves[valveIndex].id);
       valves[valveIndex].active = false;
