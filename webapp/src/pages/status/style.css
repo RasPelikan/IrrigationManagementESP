@@ -9,6 +9,30 @@
     text-align: center;
 }
 
+/* Raw water-level sensor snapshot, displayed top→bottom (FULL on the left, EMPTY on the right). */
+.sensor-dots {
+    display: flex;
+    flex-direction: row;
+    gap: 0.25rem;
+    align-items: center;
+}
+
+.sensor-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1px solid #666;
+    display: inline-block;
+}
+
+.sensor-wet {
+    background-color: #2080ff;
+}
+
+.sensor-dry {
+    background-color: transparent;
+}
+
 .status-table {
     min-width: 100%;
 }

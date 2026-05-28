@@ -43,6 +43,18 @@ The ESP32 has enough GPIOs to directly control LEDs, relays and sensors without 
 For measurement of pressure a [sensor](https://www.amazon.de/dp/B07SYLH59Q) ([sensor values](./readme/sensor-values.xlsx))
 is used connected to the ADC pin (GPIO 34). The ESP32 ADC is 12-bit but is set to 10-bit (values 0–1023).
 
+For water level, five [horizontal side-mount float switches](https://amzn.eu/d/0hU5uFkc) are used. Each switch is a sealed
+magnetic reed contact that closes when the float lever is lifted by the water. Wiring uses the ESP32 internal pullup, so
+each switch only needs two leads (signal + common GND) — pin pulled LOW = float up = wet, pin floats HIGH via pullup =
+float down = dry. The firmware picks the highest closed switch as the current bracket (EMPTY / 0–25 / 25–50 / 50–75 /
+75–100 / FULL).
+
+To avoid drilling the IBC tank itself, the switches are mounted on an external **DN90 PVC standpipe** (≈1 m) connected
+to the IBC outlet via a T-fitting and flex hose. Both vessels share the same water level (communicating vessels). The
+standpipe is fixed to the IBC cage with 3D-printed clamps and rests on a 3D-printed base cup that bears the ~7 kg weight
+when full. Cable splices are made dry inside an IP55 junction box mounted on the outside of the standpipe with WAGO 221
+terminals; only the ~30 cm of factory cable from each float sits inside the standpipe.
+
 ## Build
 
 There are two build paths: ArduinoIDE (interactive) and a headless shell-script
@@ -241,15 +253,23 @@ Create a file `/data/config.json` and use this as a template:
 
 ```json
 {
-  "wifi": {                 // optional
-    "channel": 9            // the wifi channel to connect to (may be useful in case of several access points)
+  "location": {             // optional - enables daylight-gated well pump in AUTO mode
+    "latitude": 48.2082,    // decimal degrees, north positive
+    "longitude": 16.3738    // decimal degrees, east positive
   },
   "pumps": {
     "well": {               // well-pump specific config
       "cycle": {            // the cycle in to pump water
                             // typically pumps are not meant to run without break
         "on": 45,           // minutes how long to pump
-        "off": 15           // minutes of the break
+        "off": 15,          // minutes of the break
+        "overfill": 300     // optional, seconds to keep pumping after FULL is reached
+                            // (compensates for redistribution lag between connected containers).
+                            // Omit or set to 0 to disable.
+      },
+      "daylight": {         // optional, only used when "location" is set
+        "startOffsetMin": 60, // minutes after sunrise to allow pumping
+        "endOffsetMin": 60    // minutes before sunset to stop pumping
       }
     },
     "irrigation": {         // irrigation specific config
@@ -259,23 +279,24 @@ Create a file `/data/config.json` and use this as a template:
   },
   "water": {
     "level": {              // water-level specific config
-      "hysteresis": 120     // once a changed water level is detected it is necessary to pause sensing for update
-                            // because waves in the container might cause fluctuation messurements. In electronic
-                            // terms this is called hysteresis. Set a proper value according to the size of your
-                            // container: For bigger containers it takes more time to pump enough water so waves
-                            // cause this issue. The unit is seconds.
+      "hysteresis": 15      // a falling water level must be reported consistently for this many
+                            // consecutive seconds before it is committed. Rising readings are
+                            // committed immediately. This prevents waves and bubbles from briefly
+                            // dropping the reading to EMPTY (and aborting an active irrigation
+                            // cycle). Pick a value that exceeds the typical wave-settle time but
+                            // is short enough to still react quickly to a genuine empty container.
     },
     "pressure": {           // water-pressure specific config
       "low": 3.0,           // the low end in bar to start the irrigation pump
       "high": 5.5,          // the high end in bar to stop the irrigation pump
       "reference": {        // to setup ADC for pressure sensor
-        "low": {            // pump water at pressure of e.g. 1 bar into the system (don't use 0 bar for 'low')
-          "bar": 1.0,       // the exact pressure one can read from analog sensor
-          "value": 1000     // the ADC value shown in the webapp (values from 0 to 4095 on ESP32)
+        "low": {            // pump water at pressure of e.g. 3 bar into the system (don't use 0 bar for 'low')
+          "bar": 3.0,       // the exact pressure one can read from analog sensor
+          "value": 350      // the ADC value shown in the webapp (values from 0 to 1023, 10-bit)
         },
-        "high": {           // pump water at pressure of e.g. 5 bar into the system
-          "bar": 5.0,       // the exact pressure one can read from analog sensor
-          "value": 3200     // the ADC value shown in the webapp (values from 0 to 4095 on ESP32)
+        "high": {           // pump water at pressure of e.g. 8 bar into the system
+          "bar": 8.0,       // the exact pressure one can read from analog sensor
+          "value": 800      // the ADC value shown in the webapp (values from 0 to 1023, 10-bit)
         }
       }
     }

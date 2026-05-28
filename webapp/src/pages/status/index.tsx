@@ -19,6 +19,13 @@ interface ImStatus {
   firmwareBuildTime?: string;
   firmwareGitCommit?: string;
   waterLevel?: string;
+  // Raw per-sensor wet/dry snapshot from the firmware, top→bottom (FULL, 3, 2, 1, EMPTY).
+  // 'W' = wet, '.' = dry. Updates on every change so chatter is visible even when the
+  // debounced waterLevel does not change.
+  waterLevelRaw?: string;
+  // Drop-debounce progress (seconds the firmware has seen a consistent lower level).
+  // 0 when no drop is pending; commits at water.level.hysteresis.
+  waterLevelDropConfirms?: number;
   waterPressure?: number;
   waterPressureAdc?: number;
   irrigationPump: 'active' | 'inactive' | 'out-of-water';
@@ -322,8 +329,25 @@ const Status = ({}) => {
                   <td>Level:</td>
                   <td>
                     <div>
+                      <div>
+                        { status.waterLevel }
+                        {
+                          status.waterLevelDropConfirms
+                              ? <span style={ { marginLeft: '0.5rem', color: '#888', fontSize: '0.85em' } }>
+                                  (drop: { status.waterLevelDropConfirms }s)
+                                </span>
+                              : undefined
+                        }
+                      </div>
                       {
-                        status.waterLevel
+                        status.waterLevelRaw
+                            ? <div title="Sensors top→bottom: FULL · 3 · 2 · 1 · EMPTY" className="sensor-dots">
+                                {
+                                  status.waterLevelRaw.split('').map((c, i) =>
+                                      <span key={ i } className={ c === 'W' ? 'sensor-dot sensor-wet' : 'sensor-dot sensor-dry' } />)
+                                }
+                              </div>
+                            : undefined
                       }
                     </div>
                   </td>

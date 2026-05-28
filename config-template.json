@@ -21,7 +21,7 @@
   },
   "water": {
     "level": {
-      "hysteresis": 120
+      "hysteresis": 15
     },
     "pressure": {
       "low": 3.0,
