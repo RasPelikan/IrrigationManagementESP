@@ -8,3 +8,7 @@ build_info.h
 
 # Toolchain snapshots (large; archive externally — see README "Cold-storage rebuild")
 vendor
+
+# Vite writes a transient config loader during build; would otherwise mark the
+# tree dirty for the provenance check in vite.config.ts.
+webapp/vite.config.ts.timestamp-*.mjs
