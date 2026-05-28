@@ -398,3 +398,55 @@ Hints:
    npm run build
 1. All files of the webapp have to be added for upload (`data/www/index.html` and all files in `data/www/assets`)!
    Just add all files of all subdirectories into the upload form.
+
+## Gallery
+
+A look at the physical installation:
+
+### System overview
+
+![Annotated overview of the installation](readme/Overview.jpeg)
+
+The complete rig: well pump pipe coming in from the top, water passing through a filter into the top opening of the IBC containers, three containers connected at the bottom so they share level, local irrigation valve, pressure tank, horizontally mounted submersible irrigation pump, and the digital pressure sensor for the pressure-based pump control.
+
+### Storage — three connected IBC containers
+
+![Three IBC containers connected at the bottom](readme/IBC-Containers.jpeg)
+
+Three IBCs coupled at the bottom act as one tank with ~3 m³ capacity. Thanks to the bottom coupling the level reads the same.
+
+### Water-level sensing — DN90 PVC standpipe
+
+![DN90 PVC standpipe next to the IBC, connected at the bottom](readme/Waterlevel.jpeg)
+
+External DN90 standpipe wired to the IBC outlet via a T-fitting and flex hose (communicating vessels). Five horizontal side-mount float switches are mounted along the pipe at the bracket positions. This avoids drilling the IBC walls and keeps the switches accessible for service.
+
+### Controller — ESP32 + relays in a waterproof box
+
+![Open controller enclosure with ESP32 and relay boards](readme/Controller.jpeg)
+
+ESP32 (with external antenna) plus a relay board for the irrigation pump, well pump and two local irrigation valves. The white I/O switch on the right is the mains kill for manual lockout. Remote valves controlled over HTTP do not need a relay channel here — see the [client project](https://github.com/RasPelikan/IrrigationClientESP).
+
+### Valves
+
+![Two solenoid valves with quick-connect terminals](readme/Valves.jpeg)
+
+230 V solenoid valves on the local outputs, driven via the relay board in the controller box.
+
+### Irrigation pump — DIY housing build
+
+A submersible deep-well pump is repurposed as the irrigation pump by mounting it horizontally inside a custom housing made from KG-Rohr (PVC sewer pipe) end caps. The five photos document the build:
+
+| | |
+|---|---|
+| ![Pump test-fit in the pipe with 3D-printed alignment ring](readme/Mounting-the-pump-1.jpeg) | ![Outlet end with 3D-printed support ring](readme/Mounting-the-pump-2.jpeg) |
+| ![Pump bottom with the suction screen visible inside the orange end cap](readme/Mounting-the-pump-3.jpeg) | ![Outlet cap with O-ring seat and threaded brass nipple](readme/Mounting-the-pump-4.jpeg) |
+| ![Finished housing connected to the pressure-tank manifold](readme/Mounting-the-pump-5.jpeg) | |
+
+### Webapp — Status page
+
+![Webapp status page on a phone showing level, pump times, pressure, well/irrigation pump state, cycles and valves](readme/Screenshot.jpeg)
+
+The Status page is the primary user interface, updated live via Server-Sent Events. Visible: current level (with the five raw float-switch indicators on the right), daylight pump window, pressure, well-pump and irrigation-pump state with mode toggles, cycles, all valves with per-valve mode toggles, and the firmware/webapp build provenance at the bottom.
+
+
